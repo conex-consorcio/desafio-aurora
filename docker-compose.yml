@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aurora
+      POSTGRES_PASSWORD: aurora
+      POSTGRES_DB: aurora
+    ports: ["5442:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurora"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6389:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  aurora:
+    build: ./stub
+    ports: ["4010:4010"]
+    environment:
+      LIMITE_CONCORRENCIA: ${AURORA_LIMITE_CONCORRENCIA:-20}
+
+  # O Caso 1 sobe varias replicas desta:  docker compose up --scale api=8 api
+  api:
+    build: .
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      DATABASE_URL: "postgresql://aurora:aurora@postgres:5432/aurora?schema=public&connection_limit=10"
+      REDIS_URL: "redis://redis:6379"
+      AURORA_BASE_URL: "http://aurora:4010"
+      PORT: 3010
