@@ -1,0 +1,39 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Parceiro {
+  id        String   @id @default(uuid())
+  codigo    String   @unique
+  documento String
+  criadoEm  DateTime @default(now())
+
+  @@map("parceiros")
+}
+
+model Lance {
+  id          String   @id @default(uuid())
+  grupo       String
+  cota        String
+  assembleia  String
+  protocolo   String?
+  registradoEm DateTime @default(now())
+
+  @@map("lances")
+}
+
+model Cota {
+  id            String    @id @default(uuid())
+  grupo         String
+  numero        String
+  situacao      String
+  valorCredito  Int?
+  sincronizadaEm DateTime?
+
+  @@map("cotas")
+}
