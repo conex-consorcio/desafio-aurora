@@ -1,0 +1,9 @@
+{
+  "name": "aurora-stub",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "express": "^4.21.2",
+    "tsx": "^4.19.2"
+  }
+}
