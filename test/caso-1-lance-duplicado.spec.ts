@@ -18,8 +18,13 @@ const APIS = (process.env.API_URLS ?? "http://localhost:3010").split(",");
 
 const GRUPO = "9001";
 const COTA = "0042";
-const ASSEMBLEIA = "2026-09";
 const TENTATIVAS = 8;
+
+/**
+ * Chave nova a cada execucao. Sem isso a segunda rodada encontraria o lance da
+ * primeira no banco e passaria sem que nada tivesse sido corrigido.
+ */
+const ASSEMBLEIA = process.env.TEST_RUN_ID ?? `run-${Date.now()}`;
 
 async function chamadasNoParceiro(chave: string): Promise<number> {
   const resposta = await fetch(`${AURORA}/_admin/chamadas`);
@@ -58,7 +63,7 @@ describe("Caso 1 - registro concorrente de lance", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             grupo: GRUPO,
-            cota: "0043",
+            cota: `${COTA}-b`,
             assembleia: ASSEMBLEIA,
           }),
         }).then((r) => r.json() as Promise<{ protocolo: string }>);

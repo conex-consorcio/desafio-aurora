@@ -12,7 +12,8 @@ import { beforeAll, describe, expect, it } from "@jest/globals";
 const AURORA = process.env.AURORA_BASE_URL ?? "http://localhost:4010";
 const API = process.env.APP_URL ?? "http://localhost:3010";
 
-const GRUPO = "9002";
+/** Grupo novo a cada execucao, para nao herdar estado da rodada anterior. */
+const GRUPO = process.env.TEST_RUN_ID ?? `9002-${Date.now()}`;
 const TOTAL = 500;
 
 /** Sequencial levaria ~250s. Este teto proibe a solucao sequencial. */
