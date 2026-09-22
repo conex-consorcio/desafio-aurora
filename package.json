@@ -12,7 +12,9 @@
     "test:caso1": "jest --runInBand test/caso-1",
     "test:caso2": "jest --runInBand test/caso-2",
     "prisma:migrate": "prisma migrate deploy",
-    "prisma:generate": "prisma generate"
+    "prisma:generate": "prisma generate",
+    "prisma:seed": "prisma db seed",
+    "duas-instancias": "bash scripts/duas-instancias.sh"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
@@ -48,5 +50,11 @@
       "^@shared/(.*)$": "<rootDir>/src/shared/$1"
     },
     "testTimeout": 300000
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "prisma": {
+    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
   }
 }
