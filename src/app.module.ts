@@ -5,6 +5,7 @@ import { AuroraModule } from "@shared/aurora/aurora.module";
 import { ParceirosModule } from "@modules/parceiros/parceiros.module";
 import { LancesModule } from "@modules/lances/lances.module";
 import { CotasSyncModule } from "@modules/cotas-sync/cotas-sync.module";
+import { ConsultasModule } from "@modules/consultas/consultas.module";
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { CotasSyncModule } from "@modules/cotas-sync/cotas-sync.module";
     ParceirosModule,
     LancesModule,
     CotasSyncModule,
+    ConsultasModule,
   ],
 })
 export class AppModule {}
