@@ -66,6 +66,59 @@ function comLimite(handler: express.RequestHandler): express.RequestHandler {
   };
 }
 
+// --------------------------------------------------------------------------
+// Autenticacao
+// --------------------------------------------------------------------------
+
+const CLIENT_ID = "victoria-pro";
+const CLIENT_SECRET = "dev-secret-nao-usar-em-producao";
+const TOKEN_TTL = Number(process.env.TOKEN_TTL_SEGUNDOS ?? 300);
+
+/** So existe UM token valido por vez. Emitir outro mata o anterior. */
+let tokenVigente: string | null = null;
+let tokenExpiraEm = 0;
+
+app.post("/auth/token", async (req, res) => {
+  const { clientId, clientSecret } = req.body ?? {};
+
+  if (clientId !== CLIENT_ID || clientSecret !== CLIENT_SECRET) {
+    res.status(401).json({
+      codigo: "NAO_AUTORIZADO",
+      mensagem: "clientId ou clientSecret invalidos.",
+    });
+    return;
+  }
+
+  contar("auth:token");
+
+  // Emitir token custa caro do lado da Aurora. Quem renova em manada paga
+  // este preco vezes o tamanho da manada.
+  await dormir(400);
+
+  tokenVigente = crypto.randomBytes(24).toString("hex");
+  tokenExpiraEm = Date.now() + TOKEN_TTL * 1000;
+
+  res.json({ accessToken: tokenVigente, expiraEm: TOKEN_TTL });
+});
+
+function exigeToken(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) {
+  const enviado = (req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
+
+  if (!enviado || enviado !== tokenVigente || Date.now() >= tokenExpiraEm) {
+    res.status(401).json({
+      codigo: "NAO_AUTORIZADO",
+      mensagem: "Token ausente, expirado ou substituido por uma emissao mais nova.",
+    });
+    return;
+  }
+
+  next();
+}
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", versao: "2.6.0", emVoo, picoTentativas });
 });
@@ -76,6 +129,7 @@ app.get("/health", (_req, res) => {
  */
 app.post(
   "/lances/registrar",
+  exigeToken,
   comLimite(async (req, res) => {
     const { grupo, cota, assembleia } = req.body ?? {};
     if (!grupo || !cota || !assembleia) {
@@ -102,6 +156,7 @@ app.post(
 /** Detalhe de uma cota. Lento. */
 app.get(
   "/cotas/:grupo/:numero",
+  exigeToken,
   comLimite(async (req, res) => {
     await dormir(200 + Math.floor(Math.random() * 700));
     contar(`cota:${req.params.grupo}:${req.params.numero}`);
@@ -114,12 +169,26 @@ app.get(
   }),
 );
 
+/**
+ * Detalhe do grupo. Exige token, mas NAO passa pelo limite de concorrencia --
+ * e barata do lado da Aurora.
+ */
+app.get("/grupos/:numero", exigeToken, (req, res) => {
+  contar(`grupo:${req.params.numero}`);
+  res.json({
+    numeroGrupo: req.params.numero,
+    bem: "Automovel",
+    valorCredito: 8_990_000,
+    prazoMeses: 80,
+  });
+});
+
 /** Esta rota NUNCA responde. Existe porque parceiros fazem isso. */
 app.get("/cotas/:grupo/pendurada", (_req, _res) => {
   /* silencio */
 });
 
-app.get("/parceiros", (_req, res) => {
+app.get("/parceiros", exigeToken, (_req, res) => {
   res.json({
     codigo: "PRC-0091",
     razaoSocial: "Aurora Participacoes LTDA",
@@ -139,6 +208,12 @@ app.get("/_admin/chamadas", (_req, res) => {
     recusas429,
     limite: LIMITE,
   });
+});
+
+/** Invalida o token vigente sem esperar o TTL. Usado pelos testes. */
+app.post("/_admin/expirar-token", (_req, res) => {
+  tokenExpiraEm = 0;
+  res.json({ ok: true });
 });
 
 app.post("/_admin/reset", (_req, res) => {
