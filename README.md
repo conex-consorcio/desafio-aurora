@@ -26,9 +26,9 @@ O teste em `test/caso-1-lance-duplicado.spec.ts` prova o problema. Ele falha
 hoje. Suba duas instâncias contra o mesmo banco:
 
 ```bash
-PORT=3010 yarn start
-PORT=3011 yarn start
-API_URLS="http://localhost:3010,http://localhost:3011" yarn test:caso1
+PORT=3010 npm start
+PORT=3011 npm start
+API_URLS="http://localhost:3010,http://localhost:3011" npm run test:caso1
 ```
 
 Passe o teste. Depois responda no PR: **o que acontece se o processo morrer
@@ -51,7 +51,7 @@ O teste em `test/caso-2-sincronizacao.spec.ts` prova o problema. Hoje três dos
 quatro casos falham.
 
 ```bash
-yarn test:caso2
+npm run test:caso2
 ```
 
 O quarto — *"não resolve serializando tudo"* — **já passa hoje**, e é de
@@ -96,10 +96,10 @@ fiscalização: queremos ver como você conduz o modelo, não se você usou.
 ```bash
 cp .env.example .env
 docker compose up -d postgres redis aurora
-yarn install
-yarn prisma:migrate
-yarn prisma:generate
-yarn start
+npm install
+npm run prisma:migrate
+npm run prisma:generate
+npm start
 ```
 
 A Aurora sobe em `http://localhost:4010`. Ela expõe duas rotas de
