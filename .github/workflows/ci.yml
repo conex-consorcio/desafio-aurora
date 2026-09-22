@@ -1,0 +1,95 @@
+name: CI
+
+# O CI da `main` fica VERMELHO de proposito: os dois casos reproduzem
+# problemas em aberto. O seu PR fica verde quando voce resolve.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verificacao:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aurora
+          POSTGRES_PASSWORD: aurora
+          POSTGRES_DB: aurora
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aurora"
+          --health-interval 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: "postgresql://aurora:aurora@localhost:5432/aurora?schema=public&connection_limit=10"
+      REDIS_URL: "redis://localhost:6379"
+      AURORA_BASE_URL: "http://localhost:4010"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Instalar
+        run: npm ci
+
+      - name: Banco
+        run: |
+          npx prisma migrate deploy
+          npx prisma generate
+          npm run prisma:seed
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npx nest build
+
+      - name: Testes de unidade
+        run: npx jest --runInBand src
+
+      - name: Subir o parceiro Aurora
+        run: |
+          cd stub && npm install --omit=dev
+          npx tsx server.ts &
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:4010/health && break
+            sleep 1
+          done
+
+      - name: Subir duas instancias da aplicacao
+        run: |
+          PORT=3010 node dist/main.js &
+          PORT=3011 node dist/main.js &
+          for porta in 3010 3011; do
+            for _ in $(seq 1 30); do
+              curl -sf -o /dev/null -XPOST "http://localhost:$porta/lances/registrar" \
+                -H 'content-type: application/json' \
+                -d '{"grupo":"_warmup","cota":"0","assembleia":"0"}' && break
+              sleep 1
+            done
+          done
+
+      - name: Caso 1 - lance duplicado
+        run: npm run test:caso1
+        env:
+          API_URLS: "http://localhost:3010,http://localhost:3011"
+
+      - name: Caso 2 - sincronizacao de 500 cotas
+        run: npm run test:caso2
+        env:
+          APP_URL: "http://localhost:3010"
