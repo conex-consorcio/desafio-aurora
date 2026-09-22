@@ -96,3 +96,9 @@ jobs:
         run: npm run test:caso2
         env:
           APP_URL: "http://localhost:3010"
+
+      - name: Caso 3 - manada de renovacao de token
+        if: ${{ !cancelled() }}
+        run: npm run test:caso3
+        env:
+          APP_URL: "http://localhost:3010"

@@ -10,11 +10,15 @@
 
 <!-- Esta pergunta vale tanto quanto o código. -->
 
-## Caso 2 — sincronização de 500 cotas
+## Caso 2 ou 3 — qual você escolheu, e por quê
+
+<!-- A escolha é avaliada. -->
 
 **Abordagem:**
 
-**O que acontece com uma sincronização em andamento quando o pod recebe SIGTERM?**
+**Se escolheu o 2 — o que acontece com uma sincronização em andamento quando o pod recebe SIGTERM?**
+
+**Se escolheu o 3 — com oito instâncias, quantas renovações você espera quando o token expira? Isso é um problema?**
 
 ## O que eu descobri
 
@@ -40,5 +44,5 @@
 ---
 
 - [ ] `npm run test:caso1` passa com **duas** instâncias
-- [ ] `npm run test:caso2` passa, incluindo o teste-guarda
+- [ ] `npm run test:caso2` **ou** `npm run test:caso3` passa
 - [ ] Não alterei os testes que vieram no repositório

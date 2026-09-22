@@ -35,7 +35,7 @@ entre o momento em que ele decide registrar e a resposta da Aurora?**
 
 ---
 
-## Caso 2 — Sincronizar 500 cotas *(obrigatório)*
+## Caso 2 — Sincronizar 500 cotas *(escolha um: este ou o Caso 3)*
 
 `POST /cotas-sync/:grupo` busca o detalhe das 500 cotas de um grupo.
 
@@ -69,6 +69,32 @@ dois reproduzem problemas em aberto. O repositório não está quebrado.
 
 O seu PR fica verde quando você resolve. Ele não roda lint nem cobertura: só
 typecheck, build e os casos.
+
+## Caso 3 — A manada de renovação de token *(escolha um: este ou o Caso 2)*
+
+A Aurora mantém **um token válido por vez**: emitir um novo invalida o anterior.
+
+Quando o token expira e há várias requisições em voo, cada uma percebe a
+expiração e renova por conta própria — e cada renovação mata o token que a
+anterior acabou de obter. Emitir token também não é barato do lado deles.
+
+O teste em `test/caso-3-token.spec.ts` prova o problema. Ele falha hoje.
+
+```bash
+npm run test:caso3
+```
+
+Passe o teste. Depois responda no PR: **com oito instâncias da aplicação, quantas
+renovações você espera ver quando o token expira? E isso é um problema?**
+
+---
+
+## Escolha
+
+O **Caso 1 é obrigatório**. Entre o 2 e o 3, faça **um**.
+
+Fazer os dois não vale mais que fazer um bem. A escolha também é avaliada:
+diga no PR por que escolheu o que escolheu.
 
 ## Como entregar
 
