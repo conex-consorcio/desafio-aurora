@@ -26,8 +26,7 @@ O teste em `test/caso-1-lance-duplicado.spec.ts` prova o problema. Ele falha
 hoje. Suba duas instâncias contra o mesmo banco:
 
 ```bash
-PORT=3010 npm start
-PORT=3011 npm start
+./scripts/duas-instancias.sh          # sobe 3010 e 3011 contra o mesmo banco
 API_URLS="http://localhost:3010,http://localhost:3011" npm run test:caso1
 ```
 
@@ -62,6 +61,14 @@ Passe o teste. Depois responda no PR: **o que acontece com uma sincronização e
 andamento quando o pod recebe SIGTERM?**
 
 ---
+
+## CI
+
+O CI da `main` está **vermelho de propósito** — ele roda os dois casos, e os
+dois reproduzem problemas em aberto. O repositório não está quebrado.
+
+O seu PR fica verde quando você resolve. Ele não roda lint nem cobertura: só
+typecheck, build e os casos.
 
 ## Como entregar
 
@@ -99,8 +106,12 @@ docker compose up -d postgres redis aurora
 npm install
 npm run prisma:migrate
 npm run prisma:generate
+npm run prisma:seed
 npm start
 ```
+
+O `prisma:seed` popula o grupo `0001` com cotas elegíveis. Sem ele o
+`LancesScheduler` roda e não encontra nada para fazer.
 
 A Aurora sobe em `http://localhost:4010`. Ela expõe duas rotas de
 instrumentação que os testes usam — e você também pode:
