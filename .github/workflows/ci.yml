@@ -89,7 +89,10 @@ jobs:
         env:
           API_URLS: "http://localhost:3010,http://localhost:3011"
 
+      # Roda mesmo com o Caso 1 vermelho: os dois casos sao independentes e
+      # cada um precisa do seu proprio sinal.
       - name: Caso 2 - sincronizacao de 500 cotas
+        if: ${{ !cancelled() }}
         run: npm run test:caso2
         env:
           APP_URL: "http://localhost:3010"
