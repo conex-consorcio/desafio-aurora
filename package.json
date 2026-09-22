@@ -14,7 +14,8 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "prisma:seed": "prisma db seed",
-    "duas-instancias": "bash scripts/duas-instancias.sh"
+    "duas-instancias": "bash scripts/duas-instancias.sh",
+    "test:caso3": "jest --runInBand test/caso-3"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
