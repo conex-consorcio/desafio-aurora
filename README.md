@@ -118,8 +118,12 @@ Não premiamos quem virou a noite.
 
 ## Ferramentas
 
-**Use IA à vontade.** Claude Code, Cursor, o que você usa no dia a dia — é
-assim que trabalhamos aqui.
+**Aqui se trabalha com Claude Code.** É a ferramenta do dia a dia do time, e
+**o seu setup nela faz parte do que avaliamos** — skills, agentes, comandos, o
+que você configurar e deixar no repositório.
+
+Use outra ferramenta se preferir; ninguém vai impedir. Mas a parte da avaliação
+que olha o seu ferramental vai olhar o que ficou versionado aqui.
 
 Anexe o log das suas conversas (`AI-LOG.md`, links, colado, tanto faz). Não é
 fiscalização: queremos ver como você conduz o modelo, não se você usou.
