@@ -155,4 +155,5 @@ curl -XPOST localhost:4010/_admin/reset
 
 ## Dúvidas
 
-Abra uma **issue**. Perguntar é bem-visto.
+Responda a mensagem de quem te enviou o desafio. **Perguntar conta a favor** —
+o enunciado tem ambiguidade de propósito em alguns pontos.
