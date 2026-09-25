@@ -31,7 +31,7 @@ export class AuroraTokenProvider {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        clientId: process.env.AURORA_CLIENT_ID ?? "victoria-pro",
+        clientId: process.env.AURORA_CLIENT_ID ?? "parceiro-demo",
         clientSecret:
           process.env.AURORA_CLIENT_SECRET ?? "dev-secret-nao-usar-em-producao",
         integrador: process.env.AURORA_INTEGRADOR ?? "plataforma",

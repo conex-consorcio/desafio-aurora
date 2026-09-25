@@ -70,7 +70,7 @@ function comLimite(handler: express.RequestHandler): express.RequestHandler {
 // Autenticacao
 // --------------------------------------------------------------------------
 
-const CLIENT_ID = "victoria-pro";
+const CLIENT_ID = "parceiro-demo";
 const CLIENT_SECRET = "dev-secret-nao-usar-em-producao";
 const TOKEN_TTL = Number(process.env.TOKEN_TTL_SEGUNDOS ?? 300);
 
