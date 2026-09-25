@@ -9,9 +9,8 @@ import { beforeAll, describe, expect, it } from "@jest/globals";
  * Este teste FALHA no estado atual do repositorio. E o objetivo do caso.
  *
  * Rode com pelo menos DUAS instancias apontando para o MESMO banco:
- *   PORT=3010 yarn start
- *   PORT=3011 yarn start
- *   API_URLS="http://localhost:3010,http://localhost:3011" yarn test:caso1
+ *   ./scripts/duas-instancias.sh
+ *   API_URLS="http://localhost:3010,http://localhost:3011" npm run test:caso1
  */
 const AURORA = process.env.AURORA_BASE_URL ?? "http://localhost:4010";
 const APIS = (process.env.API_URLS ?? "http://localhost:3010").split(",");

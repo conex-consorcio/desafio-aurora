@@ -1,7 +1,7 @@
 name: CI
 
-# O CI da `main` fica VERMELHO de proposito: os dois casos reproduzem
-# problemas em aberto. O seu PR fica verde quando voce resolve.
+# O CI da `main` fica VERMELHO de proposito: os casos reproduzem problemas
+# em aberto. O seu PR fica verde quando voce resolve.
 on:
   push:
     branches: [main]

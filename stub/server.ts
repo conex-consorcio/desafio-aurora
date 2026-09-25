@@ -4,9 +4,10 @@
  * Nao e parte da solucao: e o mundo externo. Nao altere.
  *
  * O que ele faz de util para o desafio:
+ *   - exige token, e so mantem UM valido por vez
  *   - conta cada chamada recebida, por chave de negocio
  *   - tem limite de concorrencia: acima dele responde 429 com Retry-After
- *   - e lento de proposito (120ms a 900ms)
+ *   - e lento (120ms a 900ms), e uma rota nunca responde
  */
 import crypto from "node:crypto";
 import express from "express";
@@ -91,8 +92,7 @@ app.post("/auth/token", async (req, res) => {
 
   contar("auth:token");
 
-  // Emitir token custa caro do lado da Aurora. Quem renova em manada paga
-  // este preco vezes o tamanho da manada.
+  // Emitir token custa caro do lado da Aurora.
   await dormir(400);
 
   tokenVigente = crypto.randomBytes(24).toString("hex");
