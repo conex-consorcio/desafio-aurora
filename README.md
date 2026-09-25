@@ -98,7 +98,13 @@ diga no PR por que escolheu o que escolheu.
 
 ## Como entregar
 
-Abra um **Pull Request** contra `main`.
+**Faça um fork deste repositório**, trabalhe numa branch e abra um **Pull
+Request** contra o `main` daqui.
+
+O repositório é público e os PRs também. Você vai conseguir ver o de outras
+pessoas — e elas o seu. Não vamos fingir que não: se você se inspirar em algo,
+**diga no PR**. Inspiração declarada não tira ponto; cópia silenciosa aparece na
+conversa ao vivo.
 
 O PR precisa conter:
 
