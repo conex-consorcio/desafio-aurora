@@ -117,11 +117,6 @@ O PR precisa conter:
 | O que você **não** validou | idem |
 | `AI-LOG.md` | ver abaixo |
 
-## Timebox
-
-**4 horas.** Se passar disso, tudo bem — mas **diga no PR quanto levou**.
-Não premiamos quem virou a noite.
-
 ## Ferramentas
 
 **Aqui se trabalha com Claude Code.** É a ferramenta do dia a dia do time, e

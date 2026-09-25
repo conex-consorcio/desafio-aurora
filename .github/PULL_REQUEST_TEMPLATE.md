@@ -35,7 +35,7 @@
 
 ## Tempo gasto
 
-<!-- Honesto. Não premiamos quem virou a noite. -->
+<!-- Só para calibrarmos o desafio. Não há nota melhor por ter levado menos. -->
 
 ## Como conduzi a IA
 
