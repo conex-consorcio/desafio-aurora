@@ -1,5 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { AuroraTokenProvider } from "./aurora-token.provider";
+import { Injectable, Logger } from '@nestjs/common';
+import { AuroraTokenProvider } from './aurora-token.provider';
 
 export interface RegistrarLanceRequest {
   grupo: string;
@@ -27,7 +27,8 @@ export interface CotaDetalhe {
 @Injectable()
 export class AuroraClient {
   private readonly logger = new Logger(AuroraClient.name);
-  private readonly baseUrl = process.env.AURORA_BASE_URL ?? "http://localhost:4010";
+  private readonly baseUrl =
+    process.env.AURORA_BASE_URL ?? 'http://localhost:4010';
 
   constructor(private readonly tokens: AuroraTokenProvider) {}
 
@@ -38,10 +39,11 @@ export class AuroraClient {
   private async comToken(
     executar: (token: string) => Promise<Response>,
   ): Promise<Response> {
-    const resposta = await executar(await this.tokens.obter());
+    const token = await this.tokens.obter();
+    const resposta = await executar(token);
     if (resposta.status !== 401) return resposta;
 
-    return executar(await this.tokens.renovar());
+    return executar(await this.tokens.renovar(token));
   }
 
   async registrarLance(
@@ -49,9 +51,9 @@ export class AuroraClient {
   ): Promise<RegistrarLanceResponse> {
     const resposta = await this.comToken((token) =>
       fetch(`${this.baseUrl}/lances/registrar`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "content-type": "application/json",
+          'content-type': 'application/json',
           authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(request),

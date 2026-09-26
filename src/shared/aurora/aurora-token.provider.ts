@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from '@nestjs/common';
 
 interface TokenRaw {
   accessToken: string;
@@ -13,28 +13,46 @@ interface TokenRaw {
 @Injectable()
 export class AuroraTokenProvider {
   private readonly logger = new Logger(AuroraTokenProvider.name);
-  private readonly baseUrl = process.env.AURORA_BASE_URL ?? "http://localhost:4010";
+  private readonly baseUrl =
+    process.env.AURORA_BASE_URL ?? 'http://localhost:4010';
 
   private token?: string;
   private expiraEmMs = 0;
+  private renovacao?: Promise<string>;
 
   async obter(): Promise<string> {
     if (this.token && Date.now() < this.expiraEmMs) {
       return this.token;
     }
-    return this.renovar();
+    return this.renovar(this.token);
+  }
+
+  async renovar(tokenRejeitado?: string): Promise<string> {
+    if (this.renovacao) {
+      return this.renovacao;
+    }
+
+    if (this.token && this.token !== tokenRejeitado) {
+      return this.token;
+    }
+
+    this.renovacao = this.emitir().finally(() => {
+      this.renovacao = undefined;
+    });
+
+    return this.renovacao;
   }
 
   /** Busca um token novo na Aurora. */
-  async renovar(): Promise<string> {
+  private async emitir(): Promise<string> {
     const resposta = await fetch(`${this.baseUrl}/auth/token`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        clientId: process.env.AURORA_CLIENT_ID ?? "parceiro-demo",
+        clientId: process.env.AURORA_CLIENT_ID ?? 'parceiro-demo',
         clientSecret:
-          process.env.AURORA_CLIENT_SECRET ?? "dev-secret-nao-usar-em-producao",
-        integrador: process.env.AURORA_INTEGRADOR ?? "plataforma",
+          process.env.AURORA_CLIENT_SECRET ?? 'dev-secret-nao-usar-em-producao',
+        integrador: process.env.AURORA_INTEGRADOR ?? 'plataforma',
       }),
     });
 

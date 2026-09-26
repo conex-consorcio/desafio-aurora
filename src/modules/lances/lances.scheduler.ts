@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { PrismaService } from "@shared/prisma/prisma.service";
 import { LancesService } from "./lances.service";
+import { ReservaLancePendenteError } from "./reserva-lance-pendente.error";
 
 /**
  * Dia 1 de cada mes, 06:00: registra o lance de toda cota elegivel.
@@ -26,11 +27,20 @@ export class LancesScheduler {
     this.logger.log(`registrando lances de ${cotas.length} cotas`);
 
     for (const cota of cotas) {
-      await this.lances.registrar({
-        grupo: cota.grupo,
-        cota: cota.numero,
-        assembleia: assembleiaDoMes(),
-      });
+      try {
+        await this.lances.registrar({
+          grupo: cota.grupo,
+          cota: cota.numero,
+          assembleia: assembleiaDoMes(),
+        });
+      } catch (erro) {
+        if (!(erro instanceof ReservaLancePendenteError)) {
+          throw erro;
+        }
+        this.logger.error(
+          `reserva pendente sem protocolo, cota ignorada nesta execucao grupo=${cota.grupo} cota=${cota.numero}`,
+        );
+      }
     }
   }
 }

@@ -24,6 +24,7 @@ model Lance {
   protocolo   String?
   registradoEm DateTime @default(now())
 
+  @@unique([grupo, cota, assembleia])
   @@map("lances")
 }
 
