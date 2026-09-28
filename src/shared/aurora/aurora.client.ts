@@ -79,10 +79,20 @@ export class AuroraClient {
     return resposta.json();
   }
 
-  async detalheCota(grupo: string, numero: string): Promise<CotaDetalhe> {
+  async detalheCota(
+    grupo: string,
+    numero: string,
+    sinal?: AbortSignal,
+    tempoLimiteMs = 5000,
+  ): Promise<unknown> {
+    const sinais: AbortSignal[] = [AbortSignal.timeout(tempoLimiteMs)];
+    if (sinal) sinais.push(sinal);
+    const sinalEfetivo = sinais.length === 1 ? sinais[0] : AbortSignal.any(sinais);
+
     const resposta = await this.comToken((token) =>
       fetch(`${this.baseUrl}/cotas/${grupo}/${numero}`, {
         headers: { authorization: `Bearer ${token}` },
+        signal: sinalEfetivo,
       }),
     );
 
@@ -90,6 +100,6 @@ export class AuroraClient {
       throw new Error(`aurora:detalheCota status ${resposta.status}`);
     }
 
-    return (await resposta.json()) as CotaDetalhe;
+    return resposta.json();
   }
 }
