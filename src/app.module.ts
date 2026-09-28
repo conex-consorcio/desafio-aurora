@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ScheduleModule } from "@nestjs/schedule";
 import { PrismaModule } from "@shared/prisma/prisma.module";
 import { AuroraModule } from "@shared/aurora/aurora.module";
+import { RedisModule } from "@shared/redis/redis.module";
 import { ParceirosModule } from "@modules/parceiros/parceiros.module";
 import { LancesModule } from "@modules/lances/lances.module";
 import { CotasSyncModule } from "@modules/cotas-sync/cotas-sync.module";
@@ -12,6 +13,7 @@ import { ConsultasModule } from "@modules/consultas/consultas.module";
     ScheduleModule.forRoot(),
     PrismaModule,
     AuroraModule,
+    RedisModule,
     ParceirosModule,
     LancesModule,
     CotasSyncModule,

@@ -11,6 +11,7 @@
     "test": "jest",
     "test:caso1": "jest --runInBand test/caso-1",
     "test:caso2": "jest --runInBand test/caso-2",
+    "test:caso2-multi": "jest --runInBand test/multi-caso-2",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "prisma:seed": "prisma db seed",
