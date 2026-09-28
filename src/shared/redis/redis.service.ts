@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
 import crypto from "node:crypto";
 import Redis from "ioredis";
-import { IResultadoBloqueio } from "@shared/interfaces/IResultadoBloqueio.interface";
+import type { IResultadoBloqueio } from "@shared/interfaces/resultado.interface";
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
