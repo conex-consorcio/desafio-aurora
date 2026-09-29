@@ -1,6 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@shared/prisma/prisma.service";
 import { AuroraClient } from "@shared/aurora/aurora.client";
+import { mapComLimite } from "@shared/concorrencia/map-com-limite";
+
+const CONCORRENCIA = Number(process.env.AURORA_CONCORRENCIA ?? 8);
 
 @Injectable()
 export class CotasSyncService {
@@ -21,21 +24,20 @@ export class CotasSyncService {
       String(i + 1).padStart(4, "0"),
     );
 
-    const detalhes = await Promise.all(
-      numeros.map((numero) => this.aurora.detalheCota(grupo, numero)),
+    const detalhes = await mapComLimite(numeros, CONCORRENCIA, (numero) =>
+      this.aurora.detalheCota(grupo, numero),
     );
 
-    for (const detalhe of detalhes) {
-      await this.prisma.cota.create({
-        data: {
-          grupo: detalhe.grupo,
-          numero: detalhe.numero,
-          situacao: detalhe.situacao,
-          valorCredito: detalhe.valorCredito,
-          sincronizadaEm: new Date(),
-        },
-      });
-    }
+    const sincronizadaEm = new Date();
+    await this.prisma.cota.createMany({
+      data: detalhes.map((detalhe) => ({
+        grupo: detalhe.grupo,
+        numero: detalhe.numero,
+        situacao: detalhe.situacao,
+        valorCredito: detalhe.valorCredito,
+        sincronizadaEm,
+      })),
+    });
 
     this.logger.log(`grupo ${grupo}: ${detalhes.length} cotas sincronizadas`);
 

@@ -16,6 +16,17 @@ model Parceiro {
   @@map("parceiros")
 }
 
+model ChaveIdempotencia {
+  id        String   @id @default(uuid())
+  chave     String   @unique
+  status    String   @default("PENDENTE")
+  resultado Json?
+  erro      String?
+  criadoEm  DateTime @default(now())
+
+  @@map("chaves_idempotencia")
+}
+
 model Lance {
   id          String   @id @default(uuid())
   grupo       String
@@ -24,7 +35,7 @@ model Lance {
   protocolo   String?
   registradoEm DateTime @default(now())
 
-  @@map("lances")
+  @@unique([grupo, cota, assembleia])
 }
 
 model Cota {

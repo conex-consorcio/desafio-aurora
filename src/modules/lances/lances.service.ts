@@ -1,6 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { PrismaService } from "@shared/prisma/prisma.service";
+
 import { AuroraClient } from "@shared/aurora/aurora.client";
+import { IdempotenciaService } from "@shared/idempotencia/idempotencia.service";
+import { Idempotente } from "@shared/idempotencia/idempotencia.decorator";
+import { PrismaService } from "@shared/prisma/prisma.service";
 
 export interface RegistrarLanceInput {
   grupo: string;
@@ -18,11 +21,16 @@ export class LancesService {
   private readonly logger = new Logger(LancesService.name);
 
   constructor(
+    private readonly idempotencia: IdempotenciaService,
     private readonly prisma: PrismaService,
     private readonly aurora: AuroraClient,
   ) {}
 
-  /**
+  @Idempotente(
+    (input: RegistrarLanceInput) =>
+      `lance:${input.grupo}:${input.cota}:${input.assembleia}`,
+  )
+   /**
    * Registra o lance da cota na assembleia do mes.
    *
    * O lance so pode ser registrado UMA vez por cota por assembleia: o parceiro

@@ -9,11 +9,17 @@ import { beforeAll, describe, expect, it } from "@jest/globals";
  *
  * Este teste FALHA no estado atual do repositorio.
  */
-const AURORA = process.env.AURORA_BASE_URL ?? "http://localhost:4010";
-const API = process.env.APP_URL ?? "http://localhost:3010";
+
+const AURORA =
+  process.env.AURORA_BASE_URL ?? "http://localhost:4010";
+
+const API =
+  process.env.APP_URL ?? "http://localhost:3010";
 
 /** Grupo novo a cada execucao, para nao herdar estado da rodada anterior. */
-const GRUPO = process.env.TEST_RUN_ID ?? `9002-${Date.now()}`;
+const GRUPO =
+  process.env.TEST_RUN_ID ?? `9002-${Date.now()}`;
+
 const TOTAL = 500;
 
 /** Sequencial levaria ~250s. Este teto proibe a solucao sequencial. */
@@ -28,8 +34,51 @@ interface Instrumentacao {
 }
 
 async function instrumentacao(): Promise<Instrumentacao> {
-  return (await (await fetch(`${AURORA}/_admin/chamadas`)).json()) as Instrumentacao;
+  return (await (
+    await fetch(`${AURORA}/_admin/chamadas`)
+  ).json()) as Instrumentacao;
 }
+
+async function reset(): Promise<void> {
+  await fetch(`${AURORA}/_admin/reset`, {
+    method: "POST",
+  });
+}
+
+async function sincronizar(
+  grupo: string,
+  total: number,
+): Promise<{
+  status: number;
+  sincronizadas: number;
+  duracaoMs: number;
+}> {
+  const inicio = Date.now();
+
+  const resposta = await fetch(
+    `${API}/cotas-sync/${grupo}?total=${total}`,
+    {
+      method: "POST",
+    },
+  );
+
+  const duracaoMs = Date.now() - inicio;
+
+  const corpo = resposta.ok
+    ? ((await resposta.json()) as {
+        sincronizadas: number;
+      })
+    : null;
+
+  return {
+    status: resposta.status,
+    sincronizadas: corpo?.sincronizadas ?? -1,
+    duracaoMs,
+  };
+}
+
+const grupoNovo = (): string =>
+  `${GRUPO}-${Math.floor(Math.random() * 1e6)}`;
 
 let duracaoMs = 0;
 let status = 0;
@@ -37,17 +86,25 @@ let sincronizadas = -1;
 
 describe("Caso 2 - sincronizacao de grupo", () => {
   beforeAll(async () => {
-    await fetch(`${AURORA}/_admin/reset`, { method: "POST" });
+    await reset();
 
     const inicio = Date.now();
-    const resposta = await fetch(`${API}/cotas-sync/${GRUPO}?total=${TOTAL}`, {
-      method: "POST",
-    });
+
+    const resposta = await fetch(
+      `${API}/cotas-sync/${GRUPO}?total=${TOTAL}`,
+      {
+        method: "POST",
+      },
+    );
+
     duracaoMs = Date.now() - inicio;
     status = resposta.status;
 
     if (resposta.ok) {
-      const corpo = (await resposta.json()) as { sincronizadas: number };
+      const corpo = (await resposta.json()) as {
+        sincronizadas: number;
+      };
+
       sincronizadas = corpo.sincronizadas;
     }
   }, 300_000);
@@ -65,16 +122,52 @@ describe("Caso 2 - sincronizacao de grupo", () => {
 
   it("consulta cada cota exatamente uma vez", async () => {
     const dados = await instrumentacao();
-    const cotas = Object.entries(dados.chamadas).filter(([chave]) =>
-      chave.startsWith(`cota:${GRUPO}:`),
+
+    const cotas = Object.entries(dados.chamadas).filter(
+      ([chave]) =>
+        chave.startsWith(`cota:${GRUPO}:`),
     );
 
     expect(cotas).toHaveLength(TOTAL);
-    expect(cotas.filter(([, vezes]) => vezes > 1)).toHaveLength(0);
+    expect(
+      cotas.filter(([, vezes]) => vezes > 1),
+    ).toHaveLength(0);
   });
 
   it("nao resolve serializando tudo", () => {
-    // Uma a uma dariam ~250s. Se passou daqui, nao ha paralelismo nenhum.
     expect(duracaoMs).toBeLessThan(TETO_MS);
   });
+
+  it("nao ultrapassa o limite de concorrencia da Aurora", async () => {
+    const dados = await instrumentacao();
+
+    expect(
+      dados.picoConcorrencia,
+    ).toBeLessThanOrEqual(dados.limite);
+  });
+
+  it("sincroniza corretamente uma quantidade menor que o pool de workers", async () => {
+    await reset();
+
+    const grupo = grupoNovo();
+    const total = 20;
+
+    const resultado = await sincronizar(grupo, total);
+
+    expect(resultado.status).toBe(201);
+    expect(resultado.sincronizadas).toBe(total);
+
+    const dados = await instrumentacao();
+
+    const chamadas = Object.entries(
+      dados.chamadas,
+    ).filter(([chave]) =>
+      chave.startsWith(`cota:${grupo}:`),
+    );
+
+    expect(chamadas).toHaveLength(total);
+    expect(
+      chamadas.filter(([, vezes]) => vezes > 1),
+    ).toHaveLength(0);
+  }, 120_000);
 });

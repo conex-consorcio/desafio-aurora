@@ -12,43 +12,60 @@ interface TokenRaw {
  */
 @Injectable()
 export class AuroraTokenProvider {
-  private readonly logger = new Logger(AuroraTokenProvider.name);
-  private readonly baseUrl = process.env.AURORA_BASE_URL ?? "http://localhost:4010";
+  private readonly baseUrl =
+    process.env.AURORA_BASE_URL ?? "http://localhost:4010";
 
-  private token?: string;
+  private token: string | null = null;
   private expiraEmMs = 0;
+
+  private renovacaoEmAndamento: Promise<string> | null = null;
 
   async obter(): Promise<string> {
     if (this.token && Date.now() < this.expiraEmMs) {
       return this.token;
     }
+
     return this.renovar();
   }
-
-  /** Busca um token novo na Aurora. */
+  
   async renovar(): Promise<string> {
+    if (this.renovacaoEmAndamento) {
+      return this.renovacaoEmAndamento;
+    }
+
+    this.renovacaoEmAndamento = this.emitirToken();
+
+    try {
+      return await this.renovacaoEmAndamento;
+    } finally {
+      this.renovacaoEmAndamento = null;
+    }
+  }
+
+  private async emitirToken(): Promise<string> {
     const resposta = await fetch(`${this.baseUrl}/auth/token`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+      },
       body: JSON.stringify({
-        clientId: process.env.AURORA_CLIENT_ID ?? "parceiro-demo",
-        clientSecret:
-          process.env.AURORA_CLIENT_SECRET ?? "dev-secret-nao-usar-em-producao",
-        integrador: process.env.AURORA_INTEGRADOR ?? "plataforma",
+        clientId: "parceiro-demo",
+        clientSecret: "dev-secret-nao-usar-em-producao",
       }),
     });
 
     if (!resposta.ok) {
-      throw new Error(`aurora:auth status ${resposta.status}`);
+      throw new Error(`aurora:auth/token status ${resposta.status}`);
     }
 
-    const corpo = (await resposta.json()) as TokenRaw;
+    const dados = (await resposta.json()) as {
+      accessToken: string;
+      expiraEm: number;
+    };
 
-    this.token = corpo.accessToken;
-    this.expiraEmMs = Date.now() + corpo.expiraEm * 1000;
+    this.token = dados.accessToken;
+    this.expiraEmMs = Date.now() + dados.expiraEm * 1000;
 
-    this.logger.log(`token renovado, valido por ${corpo.expiraEm}s`);
-
-    return this.token;
+    return dados.accessToken;
   }
 }

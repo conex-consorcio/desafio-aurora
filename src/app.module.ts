@@ -6,6 +6,7 @@ import { ParceirosModule } from "@modules/parceiros/parceiros.module";
 import { LancesModule } from "@modules/lances/lances.module";
 import { CotasSyncModule } from "@modules/cotas-sync/cotas-sync.module";
 import { ConsultasModule } from "@modules/consultas/consultas.module";
+import { IdempotenciaModule } from "@shared/idempotencia/idempotencia.module";
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ConsultasModule } from "@modules/consultas/consultas.module";
     LancesModule,
     CotasSyncModule,
     ConsultasModule,
+    IdempotenciaModule
   ],
 })
 export class AppModule {}
