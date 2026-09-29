@@ -1,37 +1,25 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { PrismaService } from "@shared/prisma/prisma.service";
-import { LancesService } from "./lances.service";
+import { LancesWorker } from "./lances.worker";
 
 /**
- * Dia 1 de cada mes, 06:00: registra o lance de toda cota elegivel.
+ * Dia 1 de cada mes, 06:00: registra o lance de toda cota elegible.
  *
- * Este scheduler roda em TODA instancia da aplicacao.
+ * Este scheduler roda em TODA instancia da aplicacao. O trabalho se reparte
+ * via a fila de Redis: so uma instancia le o banco e cada cota a
+ * processa um unico worker.
  */
 @Injectable()
 export class LancesScheduler {
   private readonly logger = new Logger(LancesScheduler.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly lances: LancesService,
-  ) {}
+  constructor(private readonly worker: LancesWorker) {}
 
   @Cron("0 6 1 * *")
   async registrarLancesDoMes(): Promise<void> {
-    const cotas = await this.prisma.cota.findMany({
-      where: { situacao: "DISPONIVEL" },
-    });
-
-    this.logger.log(`registrando lances de ${cotas.length} cotas`);
-
-    for (const cota of cotas) {
-      await this.lances.registrar({
-        grupo: cota.grupo,
-        cota: cota.numero,
-        assembleia: assembleiaDoMes(),
-      });
-    }
+    const mes = assembleiaDoMes();
+    this.logger.log(`iniciando lances do mes ${mes}`);
+    await this.worker.rodar(mes);
   }
 }
 

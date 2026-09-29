@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ScheduleModule } from "@nestjs/schedule";
 import { PrismaModule } from "@shared/prisma/prisma.module";
+import { RedisModule } from "@shared/redis/redis.module";
 import { AuroraModule } from "@shared/aurora/aurora.module";
 import { ParceirosModule } from "@modules/parceiros/parceiros.module";
 import { LancesModule } from "@modules/lances/lances.module";
@@ -11,6 +12,7 @@ import { ConsultasModule } from "@modules/consultas/consultas.module";
   imports: [
     ScheduleModule.forRoot(),
     PrismaModule,
+    RedisModule,
     AuroraModule,
     ParceirosModule,
     LancesModule,
