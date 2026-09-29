@@ -38,10 +38,11 @@ export class AuroraClient {
   private async comToken(
     executar: (token: string) => Promise<Response>,
   ): Promise<Response> {
-    const resposta = await executar(await this.tokens.obter());
+    const token = await this.tokens.obter();
+    const resposta = await executar(token);
     if (resposta.status !== 401) return resposta;
 
-    return executar(await this.tokens.renovar());
+    return executar(await this.tokens.renovar(token));
   }
 
   async registrarLance(

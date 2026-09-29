@@ -9,6 +9,9 @@ interface TokenRaw {
  * Guarda o token de acesso da Aurora.
  *
  * A Aurora mantem UM token valido por vez: emitir um novo invalida o anterior.
+ * Por isso a renovacao e single-flight dentro do processo: quem chega durante
+ * uma emissao espera a mesma Promise em vez de emitir outra e matar o token
+ * que o vizinho acabou de receber.
  */
 @Injectable()
 export class AuroraTokenProvider {
@@ -17,6 +20,7 @@ export class AuroraTokenProvider {
 
   private token?: string;
   private expiraEmMs = 0;
+  private renovacaoEmAndamento?: Promise<string>;
 
   async obter(): Promise<string> {
     if (this.token && Date.now() < this.expiraEmMs) {
@@ -25,8 +29,31 @@ export class AuroraTokenProvider {
     return this.renovar();
   }
 
+  /**
+   * Devolve um token novo.
+   *
+   * `tokenRejeitado` e o token que acabou de levar 401. Se ele ja nao e o
+   * atual, outra chamada renovou nesse meio tempo e o atual serve -- emitir de
+   * novo so invalidaria o que acabou de ser obtido.
+   */
+  async renovar(tokenRejeitado?: string): Promise<string> {
+    if (this.renovacaoEmAndamento) {
+      return this.renovacaoEmAndamento;
+    }
+
+    if (tokenRejeitado !== undefined && this.token && this.token !== tokenRejeitado) {
+      return this.token;
+    }
+
+    this.renovacaoEmAndamento = this.emitir().finally(() => {
+      this.renovacaoEmAndamento = undefined;
+    });
+
+    return this.renovacaoEmAndamento;
+  }
+
   /** Busca um token novo na Aurora. */
-  async renovar(): Promise<string> {
+  private async emitir(): Promise<string> {
     const resposta = await fetch(`${this.baseUrl}/auth/token`, {
       method: "POST",
       headers: { "content-type": "application/json" },
