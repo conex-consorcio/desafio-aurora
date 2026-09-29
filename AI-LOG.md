@@ -1,166 +1,273 @@
-# AI-LOG — Caso 2 (sincronização de 500 cotas)
+# AI-LOG
 
-Registro de como se conduziu o modelo nesta sessão. Ferramenta usada:
-opencode (Claude Code como referência, não usado nesta branch).
+Log of how this challenge was driven with the help of an AI (opencode). Each
+session below records what was requested and the result obtained, in the order
+the work happened. The raw transcript lives in the tool's history; this file is
+the honest summary.
 
-## Objetivo
+---
 
-Resolver o Caso 2 (obrigatório na escolha 2/3) e deixar os entregáveis do PR:
-testes próprios, ADR, respostas às perguntas, escopo honesto, `AI-LOG.md` e
-ferramental.
+## Session — 2026-09-26 — Reading the challenge and mapping requirements
 
-## Decisión de desenho (resumo)
+### Request
+Read the challenge. Map the requirements from the README, bring the PR
+checklist and the house conventions (`CLAUDE.md`), and confirm the two cases:
+Caso 1 (duplicate bid, mandatory) and the choice between Caso 2 and Caso 3.
 
-1. **Semáforo + worker pool** (`src/shared/concurrency/`) com
-   `AURORA_CONCURRENCIA=16` (default), por debaixo do limite de 20 do stub →
-   zero `429` por construção.
-2. **Timeout por request** com `AbortController` em `AuroraClient`
-   (`AURORA_TIMEOUT_MS=10000`) → a rota que nunca responde não segura um
-   worker.
-3. **Retry defensivo de 429** lendo `Retry-After`, com tope → para produção
-   onde o limite real é compartilhado entre instancias.
-4. **`createMany` em transação** → todo-o-nada.
-5. **SIGTERM ordenado**: `main.ts` espera `terminar()` (drenagem) antes de
-   `app.close()`. A sync interrompida lança `ConcurrencyInterruptedError`,
-   não persiste nada, e o `500` chega ao cliente (NestJS por padrão corta os
-   sockets activos ao fechar; esperamos a drenagem antes de fechar).
-6. **Renovação de token single-flight** em `AuroraTokenProvider` → evita a
-   manada de `/auth/token` que a concorrencia da sync expone no arranque a
-   frio. Efecto colateral: também resolve o Caso 3 em uma instancia.
+### Result
+- README mapped: `LancesScheduler` runs `@Cron("0 6 1 * *")` on every instance
+  (eight in production); Aurora charges per bid and does not dedupe.
+- Caso 1 is mandatory; between Caso 2 and Caso 3 we pick one.
+- PR deliverables listed: both case tests green, our own tests, written answers
+  to the two questions, honest scope, `AI-LOG.md`, tooling.
+- House conventions loaded: anti-corruption layer, absent data is not zero,
+  few behavior-driven tests, Portuguese in domain names.
 
-## Evidencia obtida ao vivo
+---
 
-- Sync de 500 cotas: **17s**, `201`, `recusas429=0`, cada cota consultada 1
-  vez (testes provistos + próprio em `test/caso-2-extra.spec.ts`).
-- SIGTERM a meio de sync: resposta `500` ao cliente, log de drenagem, **0
-  filas persistidas** para o grupo interrompido (verificado na BD) vs filas
-  completas para o grupo de control.
-- Arranque a frio com 16 workers: **1 sola renovação de token** (antes do
-  guard, ~22 renovações simultáneas e `401`).
-- `npm run test:caso2` e `npm run test:caso3` verdes.
+## Session — 2026-09-26 — Diagnosing Caso 1 (check-then-act race)
 
-## Comandos chave
+### Request
+Reproduce and explain why `test/caso-1-lance-duplicado.spec.ts` fails with two
+instances against the same database. Do not propose a fix yet.
 
-```bash
-npm run test:caso2        # contrato do caso 2 (provistos + extra)
-npm run test:caso3        # verde pelo guard de token (bônus)
-npx jest --runInBand src  # unit tests
-npx tsc --noEmit
-```
+### Result
+- Root cause identified as a classic check-then-act race: all instances wake at
+  the same second, read the same eligible cotas, and call the Aurora; the
+  database constraint protects the row, not the HTTP call already made.
+- Diagnosis confirmed independently by the `race-hunter` agent.
+- Two dimensions of the problem written down: duplicated external effect and
+  redundant work (every instance re-reads and re-prepares each cota).
 
-## Achados (para o PR)
+---
 
-- O `warmup` do CI (`curl -XPOST /lances/registrar` com o mesmo body) faz
-  *short-circuit* na BD se o lance já existe: **não renova o token**. Com a
-  BD recém-sembrada renova; com lances previos, não. Isto mascarou uma
-  estampida de token durante as provas manuais.
-- O `429` retry do `AuroraClient` é seguro para o exactly-once: o stub só
-  conta a cota quando a request passa o limite.
-- **O semáforo local não cubre o agregado multi-instancia.** O enunciado diz
-  que a app corre em vários serviços; 8 pods × 16 workers = 128 concurrentes,
-  muito por cima do limite (20). Agregamos `LimiteGlobal` (leases em Redis
-  via Lua), e `test/multi-caso-2.spec.ts` o demostra com duas instancias
-  reais (`./scripts/duas-instancias.sh`). Redis já estava no stack
-  (`REDIS_URL`, ioredis) mas ningún código o usava.
-- **A adquisición greedy morre de fome entre instancias.** Com o lease por
-  request e re-adquisición instantánea, a primeira instancia se leva os 16
-  slots e a outra espera 10s → "saturado" em ambas. Fix: **cola FIFO justa**
-  no Lua de `LimiteGlobal` — quem libera promove ao primeiro da cola, ninguén
-  fura a fila. Com duas instancias ambas completan em ~35s (re-verificado:
-  37s), pico 16, zero 429.
-- **Ping-pong de token entre instancias.** Cada instancia cacheaba o seu
-  token e se invalidavam mutuamente (~38 renovações em 10s, requests
-  penduradas em 401). Fix: o token vive em Redis (todas leem o MESMO) e a
-  renovação é single-flight GLOBAL com lock `SET NX PX`; os que esperan
-  recebem um token NOVO, nunca o que já falhou (um token velho pode seguir
-  "válido" na cache mas já não ser aceito pelo socio). Efecto: `test:caso3`
-  verde.
-- **Cola com esperas mortas.** Um worker que agota a sua espera ("saturado")
-  deixa a sua entrada na cola FIFO; tras um run catastrófico a cola
-  acumularía lixo que retrasa a seguinte sync. Fix: `cola:tempo` com TTL
-  (15s) — o acquire/release Lua limpa as esperas mortas.
-- **Race de arranque de Redis.** `redis.status` em "connect"/"wait" já não
-  estoura: reintenta no poll. Só "close"/"end" (Redis realmente caído) lança
-  erro ruidoso.
-- **`REDIS_PREFIX`** (default "aurora") nas chaves (`aurora:token`,
-  `aurora:limite:*`) para que ambientes que compartan um mesmo Redis não se
-  contaminen.
+## Session — 2026-09-26 — Choosing between Caso 2 and Caso 3
 
-## Desacuerdos com o modelo / correções
+### Request
+Present the trade-off between Caso 2 (sync 500 cotas) and Caso 3 (token renewal
+stampede) so I can choose.
 
-1. **Campo de instrumentação**: o stub e o test usan `picoConcorrencia`
-   (portugués), não `picoConcurrencia`. O primeiro esbozo do test extra usaba
-   o nome espanhol e falhou o matcher — corrigido lendo o stub real.
-2. **Escopo do token provider**: inicialmente se decidiu NÃO tocar o token
-   (era "territorio do Caso 3"). Ao provar o SIGTERM a frio apareceu a manada
-   de renovações rompendo a sync. Se revisou a decisión: o guard single-flight
-   protege diretamente o objetivo do Caso 2 ("não derribar o parceiro") e se
-   implementou, documentando o limite (entre instancias segue sendo escopo do
-   Caso 3).
-3. **`app.close()` corta sockets activos**: a primeira versão do shutdown
-   chamaba `app.close()` directo e o `500` se perdia (conexión cortada). Se
-   agregou `terminar()` que drena antes de fechar — verificado com resposta
-   `500` chegando ao cliente.
-4. **Procesos zombie**: `pkill -f "node dist/main.js"` se mataba a sí mesmo
-   (o padrón coincide com a própria linha de comando). Usamos `[n]ode` como
-   truco para evitar o self-match.
+### Result
+- Caso 2 chosen. Rationale: the base problem (500 simultaneous requests against
+  a limited partner) already shows with a single instance and forces you to
+  deal with concurrency, timeouts, defensive retry, transactions and SIGTERM
+  drain — the risks that actually show up in production.
+- The token single-flight guard that Caso 2 requires also leaves Caso 3 solved
+  in a single instance as a side effect; multi-instance remains Caso 3 scope.
+- Not worth doing both at half quality.
 
-## Respostas para o PR
+---
 
-**Por que o Caso 2 e não o Caso 3.** Entre o 2 e o 3 faço o 2. O problema de
-base — sincronizar 500 cotas sem derrubar o parceiro — já se manifesta com
-uma única instancia (`Promise.all` sobre 500 cotas → manada de requests, o
-stub responde `429` em massa), e para resolvé-lo há que tratar concorrencia,
-timeouts, retry defensivo, transação e drenagem por SIGTERM: os riscos que
-mais se veem em produção. O guard de token single-flight que o Caso 2 exige
-pela sua própria causa (16 workers em arranque a frio → manada de
-`/auth/token`) deixa o Caso 3 resolto em UMA instancia de brinde, e o resto
-do Caso 3 (multi-instancia) é escopo do outro caso. Não valia a pena fazer
-os dois com metade da qualidade.
+## Session — 2026-09-26 — Caso 1 v1 (Postgres reservation + polling)
 
-**O que acontece com uma sincronização em andamento quando o pod recebe
-SIGTERM?** O pod deixa de despachar cotas novas, espera as requests em voo
-(cada uma limitada pelo seu timeout de 10s), responde `500` ao cliente e
-**não persiste nada**: a escrita é todo-o-nada, só corre se as 500
-completarem. Os workers esperando um slot do `LimiteGlobal` abortam em vez
-de seguir esperando. O socket do cliente não se corta no meio — `app.close()`
-só corre depois de terminada a drenagem. Verificado ao vivo: `500` chegando
-ao cliente e 0 filas persistidas na BD para o grupo interrompido.
+### Request
+Implement a fix for the duplicate bid using a reservation row in Postgres and
+polling for the outcome.
 
-## O que ficou fora
+### Result
+- **Discarded.** The database became the arbitrator on the hot path: the fix
+  still read the bank to decide, which keeps the race window open and adds load
+  to the DB on the critical path. No commit kept.
 
-- **Caso 1** (lance duplicado): obrigatório para o PR, não abordado nesta
-  sessão.
-- **Caso 3 multi-instancia**: o guard single-flight resolve a manada em uma
-  instancia; oito pods renovan cada um uma vez (escopo do Caso 3).
-- **Limite do socio fora do nosso tráfico**: o `LimiteGlobal` presuposta as
-  requests do sync (e de paso o tráfico de lances, que é secuencial e não
-  rompe o limite). O limite do socio também se comparte com consumidores
-  externos que não controlamos — deixamos margen (16 < 20). O tráfico de
-  `/grupos/:numero` e `/auth/token` não passa pelo limite de concorrencia do
-  stub.
-- **Escala a 8 instancias**: com 8 syncs simultáneas o no-429 se mantén, mas
-  cada uma corre a ~2 de concorrencia (~138s por sync). Não simulado; o teto
-  de 60s do test é de UMA instancia.
-- **`test/multi-caso-2` não corre em CI** (decisión: o CI do repo fica como
-  está, gate de uma instancia). Corre local com `./scripts/duas-instancias.sh`.
-- **Redis caído a meio de sync** (falha ruidosa, não silenciosa) — coberto
-  por unit test do estado "end".
+---
 
-### O que NÃO validé
+## Session — 2026-09-26 — Caso 1 v2 (single-flight + Redis lock)
 
-- SIGTERM só o prové manualmente, local, com uma sync de 500 real; não o
-  prové com requests penduradas nem em CI.
-- Escala a 8 instancias: só raciocinio (agregado ≤ 16 → no-`429`); não há
-  simulação nem teste com 8 pods.
-- Redis caído a meio de sync real: só coberto por unit test do estado
-  `"end"`; não há prova de integração da drenagem com Redis caído.
-- Tráfico externo compartindo o limite do socio: fora do nosso control, não
-  simulado; deixamos margen (16 < 20).
+### Request
+Iterate: arbitrate in Redis instead — single-flight per instance plus a
+distributed lock between instances.
 
-## Nota — sessão de documentação
+### Result
+- **Discarded.** Still read the database on the hot path to decide whether the
+  bid already exists. The user insisted the bank should do neither constraints
+  nor processing; it had to become an append-only record of the fact.
 
-Esta documentação (ADR-0003, `AI-LOG.md`, ferramental `.claude`) foi
-normalizada de espanhol a portugués nesta sessão, e re-verificada antes de
-dar por boa: `tsc --noEmit` limpo, 34 unit tests verdes, `npm run test:caso2`
-8/8 e `npm run test:caso2-multi` 3/3 com duas instancias reais.
+---
+
+## Session — 2026-09-26 — Caso 1 v3 (work queue + reaper)
+
+### Request
+Iterate with the bank as append-only: build the arbitration fully in Redis with
+a work queue, so only one instance reads the DB and each cota is processed by
+one worker. Add a reaper for orphans.
+
+### Result
+- Delivered. Two layers:
+  - **Layer A — single external effect** (`LancesService.registrar`): arbitration
+    entirely in Redis before touching the Aurora — single-flight (same
+    instance), `SET lance:lock:<chave> <dono> PX 15s NX` (between instances),
+    `finishing` flag for slow-but-alive winners, result key the loser waits on,
+    one DB read only if Redis has no protocol.
+  - **Layer B — non-repeated work** (`LancesWorker`): Redis sorted-set queue —
+    `ZADD lances:fila:<mes>` in batches of 500, atomic `ZPOPMIN` + `ZADD
+    processando` claim, `ZREM` on finish, Lua reaper returning orphans to the
+    queue after lease expiry.
+- The winner sets `lances:job:<mes>` (NX, 30s) so only one instance reads the
+  bank and enqueues; `feito` marks the end of enqueue.
+- `test:caso1` green against two real instances
+  (`./scripts/duas-instancias.sh` + `API_URLS=... npm run test:caso1`).
+- ADR-0004 `docs/adr/0004-lance-unico-fila-de-trabalho.md` written.
+
+---
+
+## Session — 2026-09-27 — Hardening Caso 1 (crashes and failures)
+
+### Request
+"We are handling the concurrency, but are we handling crashes and failures?"
+List the holes and fix all of them if I approve.
+
+### Result
+- Holes mapped: a worker that stops loses its cota; `fetch` without timeout
+  hangs forever; `INSERT` without retry loses a paid bid; a slow-but-alive
+  winner can be stolen.
+- Approved and fixed:
+  - per-cota failure tolerance (transient requeue, drop permanent 4xx);
+  - 30s timeout on the Aurora call with `AbortController`
+    (`TimeoutParceiroError`);
+  - `INSERT` retry with protocol as idempotency key (up to 3 tries);
+  - `finishing` flag so a slow-but-alive winner keeps possession.
+- Requeue uses score = attempt (backoff); after `MAX_TENTATIVAS=3` the cota
+  goes to `lances:falhadas:<mes>` for manual reconciliation.
+
+---
+
+## Session — 2026-09-27 — Caso 2 v1 (limited pool)
+
+### Request
+Implement the Caso 2 fix: sync 500 cotas without taking the partner down.
+
+### Result
+- **Discarded.** First approach was a bounded pool with retry. Retrying on
+  timeout collides with "each cota queried exactly once" outside the happy
+  path. The defensive 429 retry must only apply to responses that were never
+  counted by the stub (the request never passed the limit). The second
+  approach replaced it.
+
+---
+
+## Session — 2026-09-27 — Caso 2 v2 (semaphore + worker pool + token guard)
+
+### Request
+Iterate: semaphore + worker pool, per-request timeout, defensive 429 retry,
+all-or-nothing write, SIGTERM drain. Add a single-flight token renewal guard
+(the sync's 16 cold-start workers would stampede `/auth/token`).
+
+### Result
+- Delivered in `src/shared/concurrency/` and `src/modules/cotas-sync/`:
+  - semaphore (`AURORA_CONCURRENCIA=16`, below the stub's limit of 20) — zero
+    `429` by construction, not by retry;
+  - per-request timeout with `AbortController` (`AURORA_TIMEOUT_MS=10000`) — a
+    route that never responds does not hold a worker;
+  - defensive 429 retry reading `Retry-After`, with a cap, for production;
+  - `createMany` in a transaction — all-or-nothing;
+  - SIGTERM ordered: `main.ts` waits for `terminar()` (drain) before
+    `app.close()`; an interrupted sync throws `ConcurrencyInterruptedError`,
+    persists nothing, and the `500` reaches the client;
+  - `AuroraTokenProvider.renovar()` coalesces concurrent renewals (single-flight).
+- Live evidence: 500-cota sync in **17s**, `201`, `recusas429=0`, each cota
+  queried exactly once; SIGTERM mid-sync → `500` to client, drain logged, **0
+  rows persisted** for the interrupted group vs full rows for the control
+  group; cold start with 16 workers → **1 single token renewal** (before the
+  guard, ~22 simultaneous renewals and `401`s).
+- `npm run test:caso2` green. ADR-0003
+  `docs/adr/0003-concorrencia-limitada-para-sincronizacao.md` written.
+
+---
+
+## Session — 2026-09-28 — Multi-instance Caso 2 (global fairness and shared token)
+
+### Request
+The local semaphore does not cover the multi-instance aggregate (8 pods × 16 =
+128 concurrent, limit 20). Make the limit global and fair, and stop the token
+ping-pong between instances.
+
+### Result
+- `LimiteGlobal` added: per-request leases in a Redis ZSET via atomic Lua, TTL
+  `AURORA_LEASE_MS` (timeout + 1s) so a dead pod releases its slots.
+- **Starvation found and fixed:** greedy re-acquisition let the first instance
+  grab all 16 slots and the other wait 10s → "saturated" on both. Fix: a **fair
+  FIFO queue** in Lua — the releaser promotes the first waiter, nobody cuts the
+  line. Two instances now both complete in ~35s (re-checked: 37s), peak 16,
+  zero `429`.
+- **Token ping-pong found and fixed:** each instance cached its own token and
+  they invalidated each other (~38 renewals in 10s, requests stuck on `401`).
+  Fix: the token lives in Redis (everyone reads the same one) and renewal is
+  **global single-flight** with `SET NX PX`; waiters receive a NEW token, never
+  the one that just failed.
+- Dead waits cleaned by `cola:tempo` TTL (15s); Redis cold-start race handled
+  (reconnect instead of throwing on "connect"/"wait"); `REDIS_PREFIX`
+  (default "aurora") namespaces keys for shared Redis environments.
+- `npm run test:caso2-multi` green against two real instances; **`test:caso3`
+  green as a bonus** (the shared-token guard resolves the stampede in a single
+  instance).
+
+---
+
+## Session — 2026-09-28 — Translating lances module to Portuguese
+
+### Request
+Translate the `lances` module to Portuguese — comments, logs and identifiers
+(constants, methods, fields), not only comments. Nothing Spanish in domain
+names.
+
+### Result
+- `src/modules/lances/` translated end to end: comments, log messages and
+  identifiers (`valorCredito`, `numeroGrupo`, `registrar`, `rodar`, constants).
+- `test/` and `stub/` left untouched (they are the contract).
+
+---
+
+## Session — 2026-09-28 — Testing the cron and hardening 401
+
+### Request
+Exercise the real cron pipeline end to end: set the scheduler to fire every
+minute, run it, then revert. Also: a 401 from the Aurora is treated as
+permanent — is that right given token thrash between instances?
+
+### Result
+- Cron fired every minute and revealed a dirty database: residue from Caso 2
+  runs enqueued **10,524 cotas**. Cleaned, verified clean, reverted to the
+  monthly schedule (`0 6 1 * *`).
+- **401 fixed as transient:** the worker was treating 401 as permanent and
+  three cotas fell into `falhadas` during the cron test. Token thrash between
+  instances is exactly the 401 source — now the client retries once and the
+  worker requeues instead of dropping the cota.
+- Full pipeline proven live against the Aurora.
+
+---
+
+## Session — 2026-09-29 — Verification and PR answers
+
+### Request
+Run the full verification and write the PR text: the two written answers, the
+honest scope (what was left out and what was not validated), and the checklist.
+
+### Result
+- `npx tsc --noEmit` clean; `npx nest build` clean; 34 unit tests green
+  (`npx jest --runInBand src`); `npm run test:caso1` green with two instances;
+  `npm run test:caso2` 8/8; `npm run test:caso2-multi` 3/3 with two real
+  instances.
+- **Answer — Caso 1: what happens if the process dies between deciding to
+  register and the Aurora's response?** The arbitration protects against
+  concurrency between live instances, not against a crash in that window.
+  Dying after the Aurora charged and before the `protocolo` is persisted, the
+  reaper requeues and the retry charges again — a duplicated bid. The fix
+  (state machine per cota with a gate that never re-calls the Aurora on a stuck
+  `processing`/`error`) was documented, not implemented: it would require
+  touching the repo-provided unit specs and/or a schema migration, both barred
+  by the PR checklist. Residual window documented in
+  `docs/analise-crash-desafio.md`.
+- **Answer — Caso 2: what happens to an in-flight sync on SIGTERM?** The pod
+  stops dispatching new cotas, waits for in-flight requests (each capped by its
+  10s timeout), answers `500` to the client and persists nothing — the write is
+  all-or-nothing and only runs if all 500 complete. Workers waiting on a
+  `LimiteGlobal` slot abort instead of waiting. `app.close()` only runs after
+  the drain. Risk noted: `terminationGracePeriodSeconds` shorter than
+  timeout + 429 backoff → SIGKILL mid-drain (still no partial persistence).
+- **Honest scope:** Caso 3 multi-instance not done (each of 8 pods would renew
+  once — that is Caso 3 scope); partner-limit traffic from external consumers
+  not simulated (margin kept, 16 < 20); 8-instance scale reasoned, not
+  simulated (~2 concurrency each, ~138s per sync); `test:caso2-multi` not on CI
+  (repo CI stays single-instance); Redis down mid-sync only covered by the
+  `"end"` unit test, no integration proof.
+- PR text drafted for review.

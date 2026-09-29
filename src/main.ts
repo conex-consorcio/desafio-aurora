@@ -1,10 +1,11 @@
+import { CotasSyncService } from "@modules/cotas-sync/cotas-sync.service";
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
-import { CotasSyncService } from "@modules/cotas-sync/cotas-sync.service";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3010));
 
   let apagando = false;

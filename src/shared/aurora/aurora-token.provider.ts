@@ -7,9 +7,9 @@ interface TokenRaw {
   expiraEm: number;
 }
 
-const LOCK_MS = 5_000;
-const ESPERA_TOKEN_MS = 3_000;
 const AUTH_TIMEOUT_MS = 5_000;
+const ESPERA_TOKEN_MS = 3_000;
+const LOCK_MS = AUTH_TIMEOUT_MS + 1_000;
 
 /**
  * Guarda o token de acesso da Aurora, COMPARTILHADO entre instancias.

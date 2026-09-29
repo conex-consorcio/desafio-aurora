@@ -34,6 +34,26 @@ describe("AuroraClient", () => {
     global.fetch = originalFetch;
   });
 
+  it("renova passando a renovar o token que recebiu o 401", async () => {
+    const renovar = jest.fn().mockResolvedValue("token-novo");
+    const tokens = {
+      obter: async () => "token-velho",
+      renovar,
+    } as unknown as AuroraTokenProvider;
+
+    const chamadas = jest
+      .fn()
+      .mockResolvedValueOnce(new Response("{}", { status: 401 }))
+      .mockResolvedValueOnce(cotaValida());
+    global.fetch = chamadas as unknown as typeof fetch;
+
+    const cliente = new AuroraClient(tokens);
+    const detalhe = await cliente.detalheCota("0001", "0001");
+
+    expect(detalhe.situacao).toBe("DISPONIVEL");
+    expect(renovar).toHaveBeenCalledWith("token-velho");
+  });
+
   it("reintenta 429 respeitando Retry-After", async () => {
     process.env.AURORA_MAX_429_RETRIES = "1";
     const chamadas = jest.fn()

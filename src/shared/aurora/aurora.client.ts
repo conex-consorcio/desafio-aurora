@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { ErroDoParceiro } from "@shared/http/erro-do-parceiro.error";
 import { AuroraTokenProvider } from "./aurora-token.provider";
 
 export interface RegistrarLanceRequest {
@@ -47,42 +48,47 @@ export class AuroraClient {
   /**
    * Faz a chamada com o token atual. Se a Aurora responder 401, renova e
    * tenta uma vez mais -- o token pode ter expirado no meio do caminho.
-   *
-   * Se responder 429 (limite de concorrencia), espera `Retry-After` e
-   * reintenta, até `AURORA_MAX_429_RETRIES` vezes.
    */
-  private async withToken(
-    context: string,
-    execute: (token: string) => Promise<Response>,
-  ): Promise<Response> {
-    let response = await this.withFreshToken(execute);
-
-    for (let attempt = 0; attempt < this.max429Retries; attempt++) {
-      if (response.status !== 429) return response;
-
-      await sleep(this.retryAfterMs(response));
-      this.logger.warn(`aurora:${context} recebiu 429, nova tentativa ${attempt + 1}`);
-      response = await this.withFreshToken(execute);
-    }
-
-    return response;
-  }
-
-  private async withFreshToken(
-    execute: (token: string) => Promise<Response>,
+  private async comToken(
+    executar: (token: string) => Promise<Response>,
   ): Promise<Response> {
     const token = await this.tokens.obter();
-    const response = await execute(token);
-    if (response.status !== 401) return response;
+    const resposta = await executar(token);
+    if (resposta.status !== 401) return resposta;
 
-    return execute(await this.tokens.renovar(token));
+    return executar(await this.tokens.renovar(token));
+  }
+
+  /**
+   * Além da renovación por 401, se a Aurora responder 429 (limite de
+   * concorrencia), espera `Retry-After` e reintenta, até
+   * `AURORA_MAX_429_RETRIES` vezes.
+   */
+  private async comTokenCom429(
+    context: string,
+    executar: (token: string) => Promise<Response>,
+  ): Promise<Response> {
+    let resposta = await this.comToken(executar);
+
+    for (let tentativa = 0; tentativa < this.max429Retries; tentativa++) {
+      if (resposta.status !== 429) return resposta;
+
+      await sleep(this.retryAfterMs(resposta));
+      this.logger.warn(
+        `aurora:${context} recebiu 429, nova tentativa ${tentativa + 1}`,
+      );
+      resposta = await this.comToken(executar);
+    }
+
+    return resposta;
   }
 
   /**
    * Corta a request depois de `timeoutMs`. Usa AbortController para não
-   * vazar o socket quando o parceiro nunca responde.
+   * vazar o socket quando o parceiro nunca responde. Se quem chama passou
+   * um `signal`, os dois se combinan: un abort externo corta também.
    */
-  private async fetchWithTimeout(
+  private async fetchComTimeout(
     context: string,
     url: string,
     init: RequestInit = {},
@@ -90,10 +96,19 @@ export class AuroraClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
+    const sinalExterno = init.signal;
+    if (sinalExterno?.aborted) {
+      controller.abort();
+    } else {
+      sinalExterno?.addEventListener("abort", () => controller.abort(), {
+        once: true,
+      });
+    }
+
     try {
       return await fetch(url, { ...init, signal: controller.signal });
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted && !sinalExterno?.aborted) {
         throw new AuroraRequestTimeoutError(context, this.timeoutMs);
       }
       throw error;
@@ -102,63 +117,74 @@ export class AuroraClient {
     }
   }
 
-  private retryAfterMs(response: Response): number {
-    const seconds = Number(response.headers.get("retry-after"));
+  private retryAfterMs(resposta: Response): number {
+    const seconds = Number(resposta.headers.get("retry-after"));
     if (!Number.isFinite(seconds) || seconds < 0) return 1_000;
     return seconds * 1000;
   }
 
   async registrarLance(
     request: RegistrarLanceRequest,
+    sinal?: AbortSignal,
   ): Promise<RegistrarLanceResponse> {
-    const response = await this.withToken("registrarLance", (token) =>
-      this.fetchWithTimeout("registrarLance", `${this.baseUrl}/lances/registrar`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${token}`,
+    const resposta = await this.comTokenCom429("registrarLance", (token) =>
+      this.fetchComTimeout(
+        "registrarLance",
+        `${this.baseUrl}/lances/registrar`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(request),
+          signal: sinal,
         },
-        body: JSON.stringify(request),
-      }),
+      ),
     );
 
-    if (!response.ok) {
-      throw new Error(`aurora:registrarLance status ${response.status}`);
+    if (!resposta.ok) {
+      throw new ErroDoParceiro(
+        `aurora:registrarLance status ${resposta.status}`,
+        resposta.status,
+      );
     }
 
-    return (await response.json()) as RegistrarLanceResponse;
+    return (await resposta.json()) as RegistrarLanceResponse;
   }
 
   async detalheGrupo(numero: string): Promise<unknown> {
-    const response = await this.withToken("detalheGrupo", (token) =>
-      this.fetchWithTimeout(
-        "detalheGrupo",
-        `${this.baseUrl}/grupos/${numero}`,
-        { headers: { authorization: `Bearer ${token}` } },
-      ),
+    const resposta = await this.comTokenCom429("detalheGrupo", (token) =>
+      this.fetchComTimeout("detalheGrupo", `${this.baseUrl}/grupos/${numero}`, {
+        headers: { authorization: `Bearer ${token}` },
+      }),
     );
 
-    if (!response.ok) {
-      throw new Error(`aurora:detalheGrupo status ${response.status}`);
+    if (!resposta.ok) {
+      throw new ErroDoParceiro(
+        `aurora:detalheGrupo status ${resposta.status}`,
+        resposta.status,
+      );
     }
 
-    return response.json();
+    return resposta.json();
   }
 
   async detalheCota(grupo: string, numero: string): Promise<CotaDetalhe> {
-    const response = await this.withToken("detalheCota", (token) =>
-      this.fetchWithTimeout(
-        "detalheCota",
-        `${this.baseUrl}/cotas/${grupo}/${numero}`,
-        { headers: { authorization: `Bearer ${token}` } },
-      ),
+    const resposta = await this.comTokenCom429("detalheCota", (token) =>
+      this.fetchComTimeout("detalheCota", `${this.baseUrl}/cotas/${grupo}/${numero}`, {
+        headers: { authorization: `Bearer ${token}` },
+      }),
     );
 
-    if (!response.ok) {
-      throw new Error(`aurora:detalheCota status ${response.status}`);
+    if (!resposta.ok) {
+      throw new ErroDoParceiro(
+        `aurora:detalheCota status ${resposta.status}`,
+        resposta.status,
+      );
     }
 
-    return (await response.json()) as CotaDetalhe;
+    return (await resposta.json()) as CotaDetalhe;
   }
 }
 
