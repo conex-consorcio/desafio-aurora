@@ -1,15 +1,28 @@
 import { beforeAll, describe, expect, it } from "@jest/globals";
 
+/**
+ * CASO 2 - sincronizar 500 cotas sem derrubar o parceiro.
+ *
+ * A Aurora aguenta um numero limitado de requisicoes simultaneas. Acima dele
+ * responde 429 com Retry-After. Ela tambem e lenta (200ms a 900ms por cota) e
+ * tem uma rota que nunca responde.
+ *
+ * Este teste FALHA no estado atual do repositorio.
+ */
+
 const AURORA =
   process.env.AURORA_BASE_URL ?? "http://localhost:4010";
 
 const API =
   process.env.APP_URL ?? "http://localhost:3010";
 
+/** Grupo novo a cada execucao, para nao herdar estado da rodada anterior. */
 const GRUPO =
   process.env.TEST_RUN_ID ?? `9002-${Date.now()}`;
 
 const TOTAL = 500;
+
+/** Sequencial levaria ~250s. Este teto proibe a solucao sequencial. */
 const TETO_MS = 60_000;
 
 interface Instrumentacao {
