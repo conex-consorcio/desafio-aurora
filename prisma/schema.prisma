@@ -16,14 +16,24 @@ model Parceiro {
   @@map("parceiros")
 }
 
-model Lance {
-  id          String   @id @default(uuid())
-  grupo       String
-  cota        String
-  assembleia  String
-  protocolo   String?
-  registradoEm DateTime @default(now())
+/// PENDENTE: reservado antes da chamada ao parceiro, sem protocolo.
+/// REGISTRADO: o parceiro confirmou e devolveu o protocolo.
+enum SituacaoLance {
+  PENDENTE
+  REGISTRADO
+}
 
+model Lance {
+  id           String        @id @default(uuid())
+  grupo        String
+  cota         String
+  assembleia   String
+  situacao     SituacaoLance @default(PENDENTE)
+  protocolo    String?
+  reservadoEm  DateTime      @default(now())
+  registradoEm DateTime?
+
+  @@unique([grupo, cota, assembleia])
   @@map("lances")
 }
 
