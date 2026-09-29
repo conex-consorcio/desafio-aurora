@@ -1,6 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@shared/prisma/prisma.service";
-import { AuroraClient } from "@shared/aurora/aurora.client";
 
 export interface RegistrarLanceInput {
   grupo: string;
@@ -13,13 +12,20 @@ export interface RegistrarLanceResultado {
   jaRegistrado: boolean;
 }
 
+export const LANCE_REGISTRADOR = "LANCE_REGISTRADOR";
+
+/** Porta. O service depende disto, nao do cliente HTTP da Aurora. */
+export interface LanceRegistrador {
+  registrar(input: RegistrarLanceInput): Promise<{ protocolo: string }>;
+}
+
 @Injectable()
 export class LancesService {
   private readonly logger = new Logger(LancesService.name);
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly aurora: AuroraClient,
+    @Inject(LANCE_REGISTRADOR) private readonly registrador: LanceRegistrador,
   ) {}
 
   /**
@@ -41,7 +47,7 @@ export class LancesService {
       return { protocolo: existente.protocolo, jaRegistrado: true };
     }
 
-    const resposta = await this.aurora.registrarLance(input);
+    const resposta = await this.registrador.registrar(input);
 
     await this.prisma.lance.create({
       data: {
