@@ -1,5 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 
+/** Mesmo teto do cliente: acima do p100 observado com folga. */
+const TIMEOUT_MS = 10_000;
+
 interface TokenRaw {
   accessToken: string;
   expiraEm: number;
@@ -54,8 +57,11 @@ export class AuroraTokenProvider {
 
   /** Busca um token novo na Aurora. */
   private async emitir(): Promise<string> {
+    // Sem timeout, uma emissao pendurada travaria TODA chamada do processo
+    // atras do single-flight.
     const resposta = await fetch(`${this.baseUrl}/auth/token`, {
       method: "POST",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         clientId: process.env.AURORA_CLIENT_ID ?? "parceiro-demo",

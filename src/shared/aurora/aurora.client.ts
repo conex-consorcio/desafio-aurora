@@ -70,11 +70,17 @@ export class AuroraClient {
     }
   }
 
+  /**
+   * Resposta de erro recebida. Por convencao do contrato, erro e recusa:
+   * a Aurora nao processou. A excecao e 502/504: quem respondeu foi um
+   * gateway na frente dela, e o que aconteceu atras dele ninguem sabe.
+   */
   private recusa(operacao: string, resposta: Response): ParceiroFalhaError {
+    const gatewayRespondeuPelaAurora = resposta.status === 502 || resposta.status === 504;
     return new ParceiroFalhaError(
       operacao,
       `status ${resposta.status}`,
-      false,
+      gatewayRespondeuPelaAurora,
       resposta.status,
       retryAfterEmMs(resposta.headers.get("retry-after")),
     );
