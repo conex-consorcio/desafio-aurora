@@ -10,6 +10,8 @@ interface RoteiroDaAurora {
   atrasoMs?: number;
   /** Cotas que levam 429 na primeira tentativa. */
   recusaNaPrimeira?: string[];
+  /** Retry-After (ms) que a Aurora falsa manda no 429; 30 por padrao. */
+  retryAfterMs?: number;
   /** Cotas cuja primeira tentativa morre sem resposta (timeout). */
   somemNaPrimeira?: string[];
 }
@@ -34,7 +36,7 @@ function auroraDeCotas(roteiro: RoteiroDaAurora) {
         throw new ParceiroFalhaError("detalheCota", "status 429", false, 429, 10);
       }
       if (vez === 1 && roteiro.recusaNaPrimeira?.includes(numero)) {
-        throw new ParceiroFalhaError("detalheCota", "status 429", false, 429, 30);
+        throw new ParceiroFalhaError("detalheCota", "status 429", false, 429, roteiro.retryAfterMs ?? 30);
       }
 
       emVoo += 1;
@@ -98,6 +100,17 @@ describe("CotasSyncService", () => {
 
     expect(resultado).toEqual({ sincronizadas: TOTAL });
     expect(aurora.processadaMaisDeUmaVez()).toEqual([]);
+  });
+
+  it("desiste da cota em vez de esperar um Retry-After acima do teto", async () => {
+    const aurora = auroraDeCotas({ limite: 5, recusaNaPrimeira: ["0003"], retryAfterMs: 60_000 });
+    const service = new CotasSyncService(prisma, aurora.fonte, { limite: 5, esperaMaximaMs: 500 });
+    const inicio = Date.now();
+
+    const resultado = await service.sincronizarGrupo(grupoNovo(), TOTAL);
+
+    expect(resultado).toEqual({ sincronizadas: TOTAL - 1, falhas: ["0003"] });
+    expect(Date.now() - inicio).toBeLessThan(2_000);
   });
 
   it("nao repete a consulta quando nao se sabe se o parceiro processou", async () => {

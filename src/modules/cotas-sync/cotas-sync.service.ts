@@ -32,6 +32,12 @@ export interface SyncOpcoes {
   tentativas: number;
   /** Espera entre tentativas quando o parceiro nao mandou Retry-After. */
   esperaPadraoMs: number;
+  /**
+   * Acima disto nao esperamos o Retry-After: o parceiro nao controla por
+   * quanto tempo um trabalhador nosso fica parado. A cota vira falha e a
+   * proxima execucao tenta de novo.
+   */
+  esperaMaximaMs: number;
 }
 
 export interface SincronizacaoResultado {
@@ -53,6 +59,7 @@ const OPCOES_PADRAO: SyncOpcoes = {
   limite: limiteConfigurado(),
   tentativas: 3,
   esperaPadraoMs: 1_000,
+  esperaMaximaMs: 10_000,
 };
 
 @Injectable()
@@ -144,8 +151,10 @@ export class CotasSyncService implements BeforeApplicationShutdown {
 
   /**
    * Repete so quando a falha e certamente anterior ao efeito (429, 5xx,
-   * conexao recusada), esperando o que o parceiro pediu. Timeout nao repete:
-   * o parceiro pode ter processado, e a consulta contaria duas vezes.
+   * conexao recusada), esperando o que o parceiro pediu ate um teto. Timeout
+   * nao repete: o parceiro pode ter processado, e a consulta contaria duas
+   * vezes. Depois da ordem de desligar, nada e repetido: o item em maos
+   * termina como falha e a proxima execucao o pega.
    */
   private async buscarComTentativas(grupo: string, numero: string): Promise<CotaDetalhe> {
     for (let tentativa = 1; ; tentativa += 1) {
@@ -155,10 +164,20 @@ export class CotasSyncService implements BeforeApplicationShutdown {
         const podeRepetir =
           erro instanceof ParceiroFalhaError &&
           !erro.efeitoDesconhecido &&
-          tentativa < this.opcoes.tentativas;
+          tentativa < this.opcoes.tentativas &&
+          !this.desligamento.signal.aborted;
         if (!podeRepetir) throw erro;
 
-        await dormir(erro.retryAfterMs ?? this.opcoes.esperaPadraoMs * tentativa);
+        const espera = erro.retryAfterMs ?? this.opcoes.esperaPadraoMs * tentativa;
+        if (espera > this.opcoes.esperaMaximaMs) {
+          throw new ParceiroFalhaError(
+            "detalheCota",
+            `parceiro pediu ${espera}ms de espera, acima do teto de ${this.opcoes.esperaMaximaMs}ms`,
+            false,
+            erro.status,
+          );
+        }
+        await dormir(espera);
       }
     }
   }
