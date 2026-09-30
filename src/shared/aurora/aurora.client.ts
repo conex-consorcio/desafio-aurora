@@ -1,5 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { ParceiroFalhaError, paraParceiroFalha } from "@shared/http/parceiro-falha.error";
+import {
+  ParceiroFalhaError,
+  paraParceiroFalha,
+  retryAfterEmMs,
+} from "@shared/http/parceiro-falha.error";
 import { AuroraTokenProvider } from "./aurora-token.provider";
 
 export interface RegistrarLanceRequest {
@@ -77,6 +81,7 @@ export class AuroraClient {
       `status ${resposta.status}`,
       false,
       resposta.status,
+      retryAfterEmMs(resposta.headers.get("retry-after")),
     );
   }
 

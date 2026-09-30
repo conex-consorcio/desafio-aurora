@@ -25,3 +25,15 @@ describe("paraParceiroFalha", () => {
     expect(paraParceiroFalha("detalheCota", timeout).efeitoDesconhecido).toBe(true);
   });
 });
+
+describe("retryAfterEmMs", () => {
+  it("le segundos e data HTTP, e ignora o que nao reconhece", async () => {
+    const { retryAfterEmMs } = await import("./parceiro-falha.error");
+    const daquiA5s = new Date(Date.now() + 5_000).toUTCString();
+
+    expect(retryAfterEmMs("2")).toBe(2_000);
+    expect(retryAfterEmMs(daquiA5s)).toBeGreaterThan(4_000);
+    expect(retryAfterEmMs("logo")).toBeUndefined();
+    expect(retryAfterEmMs(null)).toBeUndefined();
+  });
+});

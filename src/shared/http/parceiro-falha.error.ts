@@ -18,6 +18,8 @@ export class ParceiroFalhaError extends Error {
     readonly motivo: string,
     readonly efeitoDesconhecido: boolean,
     readonly status?: number,
+    /** Quanto o parceiro pediu para esperar (Retry-After), quando pediu. */
+    readonly retryAfterMs?: number,
   ) {
     super(`[aurora:${operacao}] ${motivo}`);
     this.name = "ParceiroFalhaError";
@@ -47,4 +49,14 @@ export function paraParceiroFalha(operacao: string, erro: unknown): ParceiroFalh
 
   const motivo = erro instanceof Error ? `${erro.name}: ${erro.message}` : String(erro);
   return new ParceiroFalhaError(operacao, `sem resposta (${motivo})`, true);
+}
+
+/** Retry-After vem em segundos ou como data HTTP. Formato desconhecido: undefined. */
+export function retryAfterEmMs(valor: string | null): number | undefined {
+  if (valor === null) return undefined;
+  const segundos = Number(valor);
+  if (Number.isFinite(segundos) && segundos >= 0) return Math.round(segundos * 1000);
+  const instante = Date.parse(valor);
+  if (Number.isNaN(instante)) return undefined;
+  return Math.max(0, instante - Date.now());
 }
