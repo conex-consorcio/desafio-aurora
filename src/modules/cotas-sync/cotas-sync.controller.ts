@@ -7,10 +7,6 @@ export class CotasSyncController {
 
   @Post(":grupo")
   async sincronizar(@Param("grupo") grupo: string, @Query("total") total?: string) {
-    const sincronizadas = await this.sync.sincronizarGrupo(
-      grupo,
-      total ? Number(total) : undefined,
-    );
-    return { sincronizadas };
+    return this.sync.sincronizarGrupo(grupo, total ? Number(total) : undefined);
   }
 }
