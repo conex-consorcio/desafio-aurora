@@ -13,13 +13,6 @@ export interface RegistrarLanceResponse {
   vezRegistrada: number;
 }
 
-export interface CotaDetalhe {
-  grupo: string;
-  numero: string;
-  situacao: string;
-  valorCredito: number;
-}
-
 /**
  * Acima do p100 observado da Aurora (900ms) com folga. Um timeout curto
  * demais, seguido de nova tentativa, faz o parceiro processar a mesma coisa
@@ -124,7 +117,7 @@ export class AuroraClient {
     return resposta.json();
   }
 
-  async detalheCota(grupo: string, numero: string): Promise<CotaDetalhe> {
+  async detalheCota(grupo: string, numero: string): Promise<unknown> {
     const resposta = await this.comToken("detalheCota", (token) =>
       fetch(`${this.baseUrl}/cotas/${grupo}/${numero}`, {
         headers: { authorization: `Bearer ${token}` },
@@ -136,6 +129,6 @@ export class AuroraClient {
       throw this.recusa("detalheCota", resposta);
     }
 
-    return (await resposta.json()) as CotaDetalhe;
+    return resposta.json();
   }
 }

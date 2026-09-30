@@ -1,6 +1,15 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { ContractViolationError } from "@shared/http/contract-violation.error";
 import { PrismaService } from "@shared/prisma/prisma.service";
-import { AuroraClient } from "@shared/aurora/aurora.client";
+import { ehCotaRaw } from "./aurora-cota.types";
+import { paraCotaDetalhe, type CotaDetalhe } from "./cota.view-model";
+
+export const COTA_FONTE = "COTA_FONTE";
+
+/** Porta. O service depende disto, nao do cliente HTTP da Aurora. */
+export interface CotaFonte {
+  buscar(grupo: string, numero: string): Promise<unknown>;
+}
 
 @Injectable()
 export class CotasSyncService {
@@ -8,7 +17,7 @@ export class CotasSyncService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly aurora: AuroraClient,
+    @Inject(COTA_FONTE) private readonly fonte: CotaFonte,
   ) {}
 
   /**
@@ -22,7 +31,7 @@ export class CotasSyncService {
     );
 
     const detalhes = await Promise.all(
-      numeros.map((numero) => this.aurora.detalheCota(grupo, numero)),
+      numeros.map((numero) => this.buscarDetalhe(grupo, numero)),
     );
 
     for (const detalhe of detalhes) {
@@ -31,7 +40,8 @@ export class CotasSyncService {
           grupo: detalhe.grupo,
           numero: detalhe.numero,
           situacao: detalhe.situacao,
-          valorCredito: detalhe.valorCredito,
+          // null = o parceiro nao informou. Zero seria uma afirmacao dele.
+          valorCredito: detalhe.valorCredito ?? null,
           sincronizadaEm: new Date(),
         },
       });
@@ -40,5 +50,20 @@ export class CotasSyncService {
     this.logger.log(`grupo ${grupo}: ${detalhes.length} cotas sincronizadas`);
 
     return detalhes.length;
+  }
+
+  private async buscarDetalhe(grupo: string, numero: string): Promise<CotaDetalhe> {
+    const corpo = await this.fonte.buscar(grupo, numero);
+
+    if (!ehCotaRaw(corpo)) {
+      throw new ContractViolationError("detalheCota", "corpo com shape inesperado");
+    }
+
+    const detalhe = paraCotaDetalhe(corpo);
+    if (!detalhe) {
+      throw new ContractViolationError("detalheCota", "cota sem grupo, numero ou situacao");
+    }
+
+    return detalhe;
   }
 }

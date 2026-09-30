@@ -1,10 +1,14 @@
 import { Module } from "@nestjs/common";
-import { CotasSyncService } from "./cotas-sync.service";
+import { CotasSyncService, COTA_FONTE } from "./cotas-sync.service";
 import { CotasSyncController } from "./cotas-sync.controller";
+import { AuroraCotaFonte } from "./aurora-cota.fonte";
 
 @Module({
   controllers: [CotasSyncController],
-  providers: [CotasSyncService],
+  providers: [
+    { provide: COTA_FONTE, useClass: AuroraCotaFonte },
+    CotasSyncService,
+  ],
   exports: [CotasSyncService],
 })
 export class CotasSyncModule {}
