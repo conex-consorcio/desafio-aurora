@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "@jest/globals";
 
+import { ContractViolationError } from "@shared/http/contract-violation.error";
 import { ParceiroFalhaError } from "@shared/http/parceiro-falha.error";
 import { PrismaService } from "@shared/prisma/prisma.service";
 import { LancesService, type LanceRegistrador } from "./lances.service";
@@ -107,6 +108,25 @@ describe("LancesService", () => {
 
     expect(segunda).toEqual({ situacao: "PENDENTE" });
     expect(aurora.chamadas()).toBe(1);
+  });
+
+  it("mantem a reserva pendente quando o parceiro confirma com resposta fora do contrato", async () => {
+    let chamadas = 0;
+    const auroraSemProtocolo: LanceRegistrador = {
+      async registrar() {
+        chamadas += 1;
+        return { vezRegistrada: 1 };
+      },
+    };
+    const service = new LancesService(prisma, auroraSemProtocolo, { intervaloMs: 20, prazoMs: 100 });
+    const input = { grupo: "9001", cota: "0047", assembleia };
+
+    await expect(service.registrar(input)).rejects.toBeInstanceOf(ContractViolationError);
+    const segunda = await service.registrar(input);
+
+    // 2xx sem protocolo: o lance existe la, cobrado. Ninguem repete.
+    expect(segunda).toEqual({ situacao: "PENDENTE" });
+    expect(chamadas).toBe(1);
   });
 
   it("responde pendente quando o dono da reserva nao conclui dentro do prazo", async () => {

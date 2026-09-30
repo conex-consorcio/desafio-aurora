@@ -1,7 +1,10 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma, SituacaoLance } from "@prisma/client";
+import { ContractViolationError } from "@shared/http/contract-violation.error";
 import { ParceiroFalhaError } from "@shared/http/parceiro-falha.error";
 import { PrismaService } from "@shared/prisma/prisma.service";
+import { ehLanceRegistradoRaw } from "./aurora-lance.types";
+import { paraLanceRegistrado, type LanceRegistrado } from "./lance.view-model";
 
 export interface RegistrarLanceInput {
   grupo: string;
@@ -27,7 +30,7 @@ export const LANCE_REGISTRADOR = "LANCE_REGISTRADOR";
 
 /** Porta. O service depende disto, nao do cliente HTTP da Aurora. */
 export interface LanceRegistrador {
-  registrar(input: RegistrarLanceInput): Promise<{ protocolo: string }>;
+  registrar(input: RegistrarLanceInput): Promise<unknown>;
 }
 
 export const ESPERA_POR_CONCORRENTE = "ESPERA_POR_CONCORRENTE";
@@ -97,21 +100,38 @@ export class LancesService {
    * PENDENTE: repetir poderia cobrar duas vezes, e a Aurora nao tem consulta
    * nem chave de idempotencia para tirar a duvida. Alguem olha depois.
    */
-  private async registrarComoDono(input: RegistrarLanceInput): Promise<{ protocolo: string }> {
-    try {
-      return await this.registrador.registrar(input);
-    } catch (erro) {
-      const contexto = `grupo=${input.grupo} cota=${input.cota} assembleia=${input.assembleia}`;
+  private async registrarComoDono(input: RegistrarLanceInput): Promise<LanceRegistrado> {
+    const contexto = `grupo=${input.grupo} cota=${input.cota} assembleia=${input.assembleia}`;
+    let corpo: unknown;
 
+    try {
+      corpo = await this.registrador.registrar(input);
+    } catch (erro) {
       if (erro instanceof ParceiroFalhaError && !erro.efeitoDesconhecido) {
         await this.prisma.lance.delete({ where: { grupo_cota_assembleia: input } });
         this.logger.warn(`reserva liberada, requisicao nao saiu ${contexto}: ${erro.message}`);
       } else {
         this.logger.error(`reserva mantida PENDENTE, efeito desconhecido ${contexto}`);
       }
-
       throw erro;
     }
+
+    // Daqui em diante a Aurora respondeu 2xx: o lance existe la, cobrado. Uma
+    // resposta fora do contrato nao desfaz isso; a reserva fica PENDENTE para
+    // alguem reconciliar, e nunca e apagada.
+    const confirmacao = ehLanceRegistradoRaw(corpo) ? paraLanceRegistrado(corpo) : undefined;
+    if (!confirmacao) {
+      this.logger.error(`reserva mantida PENDENTE, confirmacao fora do contrato ${contexto}`);
+      throw new ContractViolationError("registrarLance", "confirmacao sem protocolo");
+    }
+
+    if (confirmacao.vezRegistrada !== undefined && confirmacao.vezRegistrada > 1) {
+      // O parceiro esta dizendo que ja tinha este lance: houve duplicata em
+      // algum lugar (antes desta protecao, ou fora dela). Nao e para acontecer.
+      this.logger.error(`parceiro acusa duplicata vezRegistrada=${confirmacao.vezRegistrada} ${contexto}`);
+    }
+
+    return confirmacao;
   }
 
   /** Tenta inserir a reserva. `false` quando outra chamada chegou antes. */

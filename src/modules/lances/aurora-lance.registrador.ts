@@ -7,7 +7,7 @@ import type { LanceRegistrador, RegistrarLanceInput } from "./lances.service";
 export class AuroraLanceRegistrador implements LanceRegistrador {
   constructor(private readonly aurora: AuroraClient) {}
 
-  registrar(input: RegistrarLanceInput): Promise<{ protocolo: string }> {
+  registrar(input: RegistrarLanceInput): Promise<unknown> {
     return this.aurora.registrarLance(input);
   }
 }

@@ -12,11 +12,6 @@ export interface RegistrarLanceRequest {
   assembleia: string;
 }
 
-export interface RegistrarLanceResponse {
-  protocolo: string;
-  vezRegistrada: number;
-}
-
 /**
  * Acima do p100 observado da Aurora (900ms) com folga. Um timeout curto
  * demais, seguido de nova tentativa, faz o parceiro processar a mesma coisa
@@ -87,7 +82,7 @@ export class AuroraClient {
 
   async registrarLance(
     request: RegistrarLanceRequest,
-  ): Promise<RegistrarLanceResponse> {
+  ): Promise<unknown> {
     const resposta = await this.comToken("registrarLance", (token) =>
       fetch(`${this.baseUrl}/lances/registrar`, {
         method: "POST",
@@ -104,7 +99,7 @@ export class AuroraClient {
       throw this.recusa("registrarLance", resposta);
     }
 
-    return (await resposta.json()) as RegistrarLanceResponse;
+    return resposta.json();
   }
 
   async detalheGrupo(numero: string): Promise<unknown> {
