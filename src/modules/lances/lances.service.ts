@@ -78,6 +78,12 @@ export class LancesService {
 
     const resposta = await this.registrarComoDono(input);
 
+    // Se a gravacao abaixo falhar, este log e o unico lugar onde o protocolo
+    // cobrado existe do nosso lado. Reconciliacao manual comeca por ele.
+    this.logger.log(
+      `parceiro confirmou protocolo=${resposta.protocolo} grupo=${input.grupo} cota=${input.cota} assembleia=${input.assembleia}`,
+    );
+
     await this.prisma.lance.update({
       where: { grupo_cota_assembleia: input },
       data: {

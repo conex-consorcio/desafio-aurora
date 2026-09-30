@@ -54,6 +54,28 @@ describe("LancesScheduler", () => {
     expect(aurora.registradas).toEqual(["0002", "0003"]);
   });
 
+  it("no desligamento termina a cota em maos e nao reserva outra", async () => {
+    const registradas: string[] = [];
+    const auroraLenta: LanceRegistrador = {
+      async registrar(input) {
+        await new Promise((ok) => setTimeout(ok, 60));
+        registradas.push(input.cota);
+        return { protocolo: `PRT-${input.cota}` };
+      },
+    };
+    await prisma.lance.deleteMany({ where: { grupo } });
+    const scheduler = schedulerCom(auroraLenta);
+
+    const execucao = scheduler.registrarLancesDoMes();
+    await new Promise((ok) => setTimeout(ok, 20));
+    await scheduler.beforeApplicationShutdown("SIGTERM");
+    await execucao;
+
+    expect(registradas).toEqual(["0001"]);
+    expect(await prisma.lance.count({ where: { grupo } })).toBe(1);
+    await prisma.lance.deleteMany({ where: { grupo } });
+  });
+
   it("nao espera a reserva de outra instancia nem a repete", async () => {
     const aurora = auroraQueFalhaNas([]);
     // Outra instancia reservou a 0001 e ainda nao concluiu.

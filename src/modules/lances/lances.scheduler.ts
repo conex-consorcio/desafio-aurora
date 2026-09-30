@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { type BeforeApplicationShutdown, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { PrismaService } from "@shared/prisma/prisma.service";
 import { LancesService } from "./lances.service";
@@ -10,10 +10,15 @@ import { LancesService } from "./lances.service";
  * por cota nao esta aqui: esta na reserva feita por LancesService. Aqui cada
  * instancia so tenta; quem perde a reserva de uma cota segue para a proxima
  * sem esperar, e um erro numa cota nao impede as demais.
+ *
+ * No desligamento, o loop termina a cota em maos e nao reserva outra: uma
+ * reserva feita e nunca enviada ficaria indistinguivel de "pode ter saido".
  */
 @Injectable()
-export class LancesScheduler {
+export class LancesScheduler implements BeforeApplicationShutdown {
   private readonly logger = new Logger(LancesScheduler.name);
+  private desligando = false;
+  private execucaoAtual?: Promise<void>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -22,6 +27,23 @@ export class LancesScheduler {
 
   @Cron("0 6 1 * *")
   async registrarLancesDoMes(): Promise<void> {
+    this.execucaoAtual = this.executar();
+    try {
+      await this.execucaoAtual;
+    } finally {
+      this.execucaoAtual = undefined;
+    }
+  }
+
+  async beforeApplicationShutdown(sinal?: string): Promise<void> {
+    this.desligando = true;
+    if (this.execucaoAtual) {
+      this.logger.warn(`${sinal ?? "desligamento"}: terminando a cota em maos e parando`);
+      await this.execucaoAtual;
+    }
+  }
+
+  private async executar(): Promise<void> {
     const cotas = await this.prisma.cota.findMany({
       where: { situacao: "DISPONIVEL" },
     });
@@ -33,6 +55,7 @@ export class LancesScheduler {
     let falhas = 0;
 
     for (const cota of cotas) {
+      if (this.desligando) break;
       try {
         const resultado = await this.lances.registrar(
           { grupo: cota.grupo, cota: cota.numero, assembleia },
