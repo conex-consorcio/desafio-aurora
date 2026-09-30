@@ -6,7 +6,10 @@ import { LancesService } from "./lances.service";
 /**
  * Dia 1 de cada mes, 06:00: registra o lance de toda cota elegivel.
  *
- * Este scheduler roda em TODA instancia da aplicacao.
+ * Este scheduler roda em TODA instancia da aplicacao. A garantia de um lance
+ * por cota nao esta aqui: esta na reserva feita por LancesService. Aqui cada
+ * instancia so tenta; quem perde a reserva de uma cota segue para a proxima
+ * sem esperar, e um erro numa cota nao impede as demais.
  */
 @Injectable()
 export class LancesScheduler {
@@ -22,16 +25,30 @@ export class LancesScheduler {
     const cotas = await this.prisma.cota.findMany({
       where: { situacao: "DISPONIVEL" },
     });
+    const assembleia = assembleiaDoMes();
 
-    this.logger.log(`registrando lances de ${cotas.length} cotas`);
+    this.logger.log(`registrando lances de ${cotas.length} cotas assembleia=${assembleia}`);
+
+    let registradas = 0;
+    let falhas = 0;
 
     for (const cota of cotas) {
-      await this.lances.registrar({
-        grupo: cota.grupo,
-        cota: cota.numero,
-        assembleia: assembleiaDoMes(),
-      });
+      try {
+        const resultado = await this.lances.registrar(
+          { grupo: cota.grupo, cota: cota.numero, assembleia },
+          { aguardarConcorrente: false },
+        );
+        if (resultado.situacao === "REGISTRADO" && !resultado.jaRegistrado) registradas += 1;
+      } catch (erro) {
+        falhas += 1;
+        const motivo = erro instanceof Error ? erro.message : String(erro);
+        this.logger.error(`falha na cota grupo=${cota.grupo} cota=${cota.numero}: ${motivo}`);
+      }
     }
+
+    this.logger.log(
+      `lances do mes: ${registradas} registradas por esta instancia, ${falhas} falhas, ${cotas.length} cotas`,
+    );
   }
 }
 

@@ -14,6 +14,15 @@ export type RegistrarLanceResultado =
   /** Outra chamada reservou a chave e ainda nao concluiu dentro do prazo. */
   | { situacao: "PENDENTE" };
 
+export interface RegistrarLanceOpcoes {
+  /**
+   * Quando outra chamada ja reservou a chave: esperar o protocolo dela
+   * (padrao, quem chama quer a resposta) ou devolver PENDENTE na hora (o
+   * scheduler, que so precisa garantir que alguem registrou).
+   */
+  aguardarConcorrente?: boolean;
+}
+
 export const LANCE_REGISTRADOR = "LANCE_REGISTRADOR";
 
 /** Porta. O service depende disto, nao do cliente HTTP da Aurora. */
@@ -52,11 +61,16 @@ export class LancesService {
    * reservada no banco ANTES da chamada: quem consegue inserir a linha e o
    * unico que fala com a Aurora; os demais esperam o protocolo aparecer.
    */
-  async registrar(input: RegistrarLanceInput): Promise<RegistrarLanceResultado> {
+  async registrar(
+    input: RegistrarLanceInput,
+    opcoes: RegistrarLanceOpcoes = {},
+  ): Promise<RegistrarLanceResultado> {
     const souDono = await this.reservar(input);
 
     if (!souDono) {
-      return this.aguardarDono(input);
+      return opcoes.aguardarConcorrente === false
+        ? { situacao: "PENDENTE" }
+        : this.aguardarDono(input);
     }
 
     const resposta = await this.registrarComoDono(input);
