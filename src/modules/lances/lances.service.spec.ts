@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "@jest/globals";
 
+import { ParceiroFalhaError } from "@shared/http/parceiro-falha.error";
 import { PrismaService } from "@shared/prisma/prisma.service";
 import { LancesService, type LanceRegistrador } from "./lances.service";
 
@@ -15,6 +16,21 @@ function auroraQueRegistra(atrasoMs = 50) {
       const vez = chamadas;
       await new Promise((ok) => setTimeout(ok, atrasoMs));
       return { protocolo: `PRT-${vez}` };
+    },
+  };
+  return { registrador, chamadas: () => chamadas };
+}
+
+/** Aurora falsa que falha na primeira chamada e registra nas seguintes. */
+function auroraQueFalhaNaPrimeira(efeitoDesconhecido: boolean) {
+  let chamadas = 0;
+  const registrador: LanceRegistrador = {
+    async registrar() {
+      chamadas += 1;
+      if (chamadas === 1) {
+        throw new ParceiroFalhaError("registrarLance", "simulada", efeitoDesconhecido);
+      }
+      return { protocolo: `PRT-${chamadas}` };
     },
   };
   return { registrador, chamadas: () => chamadas };
@@ -64,6 +80,33 @@ describe("LancesService", () => {
 
     expect(aurora.chamadas()).toBe(1);
     expect(segundo).toEqual({ ...primeiro, jaRegistrado: true });
+  });
+
+  it("libera a reserva e permite nova tentativa quando a requisicao nao chegou a sair", async () => {
+    const aurora = auroraQueFalhaNaPrimeira(false);
+    const service = new LancesService(prisma, aurora.registrador);
+    const input = { grupo: "9001", cota: "0045", assembleia };
+
+    await expect(service.registrar(input)).rejects.toBeInstanceOf(ParceiroFalhaError);
+    const segunda = await service.registrar(input);
+
+    expect(segunda).toMatchObject({ situacao: "REGISTRADO", jaRegistrado: false });
+    expect(aurora.chamadas()).toBe(2);
+  });
+
+  it("mantem a reserva pendente e nao repete quando nao se sabe se o parceiro processou", async () => {
+    const aurora = auroraQueFalhaNaPrimeira(true);
+    const service = new LancesService(prisma, aurora.registrador, {
+      intervaloMs: 20,
+      prazoMs: 100,
+    });
+    const input = { grupo: "9001", cota: "0046", assembleia };
+
+    await expect(service.registrar(input)).rejects.toBeInstanceOf(ParceiroFalhaError);
+    const segunda = await service.registrar(input);
+
+    expect(segunda).toEqual({ situacao: "PENDENTE" });
+    expect(aurora.chamadas()).toBe(1);
   });
 
   it("responde pendente quando o dono da reserva nao conclui dentro do prazo", async () => {

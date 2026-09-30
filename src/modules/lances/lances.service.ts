@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma, SituacaoLance } from "@prisma/client";
+import { ParceiroFalhaError } from "@shared/http/parceiro-falha.error";
 import { PrismaService } from "@shared/prisma/prisma.service";
 
 export interface RegistrarLanceInput {
@@ -58,7 +59,7 @@ export class LancesService {
       return this.aguardarDono(input);
     }
 
-    const resposta = await this.registrador.registrar(input);
+    const resposta = await this.registrarComoDono(input);
 
     await this.prisma.lance.update({
       where: { grupo_cota_assembleia: input },
@@ -72,6 +73,31 @@ export class LancesService {
     this.logger.log(`lance registrado grupo=${input.grupo} cota=${input.cota}`);
 
     return { situacao: "REGISTRADO", protocolo: resposta.protocolo, jaRegistrado: false };
+  }
+
+  /**
+   * Chama o parceiro segurando a reserva.
+   *
+   * Se a falha aconteceu antes de a requisicao sair, a reserva e apagada e a
+   * chave volta a ficar disputavel. Se pode ter saido, a reserva fica
+   * PENDENTE: repetir poderia cobrar duas vezes, e a Aurora nao tem consulta
+   * nem chave de idempotencia para tirar a duvida. Alguem olha depois.
+   */
+  private async registrarComoDono(input: RegistrarLanceInput): Promise<{ protocolo: string }> {
+    try {
+      return await this.registrador.registrar(input);
+    } catch (erro) {
+      const contexto = `grupo=${input.grupo} cota=${input.cota} assembleia=${input.assembleia}`;
+
+      if (erro instanceof ParceiroFalhaError && !erro.efeitoDesconhecido) {
+        await this.prisma.lance.delete({ where: { grupo_cota_assembleia: input } });
+        this.logger.warn(`reserva liberada, requisicao nao saiu ${contexto}: ${erro.message}`);
+      } else {
+        this.logger.error(`reserva mantida PENDENTE, efeito desconhecido ${contexto}`);
+      }
+
+      throw erro;
+    }
   }
 
   /** Tenta inserir a reserva. `false` quando outra chamada chegou antes. */
