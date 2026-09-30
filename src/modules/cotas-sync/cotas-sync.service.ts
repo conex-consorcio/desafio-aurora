@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import {
+  type BeforeApplicationShutdown,
+  Inject,
+  Injectable,
+  Logger,
+  Optional,
+} from "@nestjs/common";
 import { mapearComLimite } from "@shared/concorrencia/mapear-com-limite";
 import { ContractViolationError } from "@shared/http/contract-violation.error";
 import { ParceiroFalhaError } from "@shared/http/parceiro-falha.error";
@@ -32,7 +38,16 @@ export interface SincronizacaoResultado {
   sincronizadas: number;
   /** Cotas que esgotaram as tentativas. Ausente quando todas sincronizaram. */
   falhas?: string[];
+  /** Cotas nem consultadas porque o processo recebeu ordem de desligar. */
+  pendentes?: string[];
 }
+
+/**
+ * Quanto esperamos o que esta em voo ao desligar. Cabe dentro dos 30s de
+ * graca padrao do Kubernetes (premissa; nao confirmado com a infra) com
+ * folga para o Nest fechar o servidor depois.
+ */
+const PRAZO_DRENAGEM_MS = 20_000;
 
 const OPCOES_PADRAO: SyncOpcoes = {
   limite: limiteConfigurado(),
@@ -41,8 +56,10 @@ const OPCOES_PADRAO: SyncOpcoes = {
 };
 
 @Injectable()
-export class CotasSyncService {
+export class CotasSyncService implements BeforeApplicationShutdown {
   private readonly logger = new Logger(CotasSyncService.name);
+  private readonly desligamento = new AbortController();
+  private readonly emAndamento = new Set<Promise<SincronizacaoResultado>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -62,29 +79,67 @@ export class CotasSyncService {
    * rodar de novo so completa o que falta.
    */
   async sincronizarGrupo(grupo: string, total = 500): Promise<SincronizacaoResultado> {
+    const execucao = this.executar(grupo, total);
+    this.emAndamento.add(execucao);
+    try {
+      return await execucao;
+    } finally {
+      this.emAndamento.delete(execucao);
+    }
+  }
+
+  /**
+   * SIGTERM: nenhuma cota nova e consultada; as que estao em voo terminam e
+   * sao gravadas; quem chamou recebe o que deu para fazer. O que ficou fica
+   * sem `sincronizadaEm`, e a proxima execucao completa.
+   */
+  async beforeApplicationShutdown(sinal?: string): Promise<void> {
+    if (this.emAndamento.size === 0) return;
+
+    this.logger.warn(
+      `${sinal ?? "desligamento"}: drenando ${this.emAndamento.size} sincronizacao(oes) em andamento`,
+    );
+    this.desligamento.abort();
+
+    await Promise.race([
+      Promise.allSettled([...this.emAndamento]),
+      dormir(PRAZO_DRENAGEM_MS),
+    ]);
+  }
+
+  private async executar(grupo: string, total: number): Promise<SincronizacaoResultado> {
     const numeros = Array.from({ length: total }, (_, i) =>
       String(i + 1).padStart(4, "0"),
     );
     const falhas: string[] = [];
     let sincronizadas = 0;
 
-    await mapearComLimite(numeros, this.opcoes.limite, async (numero) => {
-      try {
-        const detalhe = await this.buscarComTentativas(grupo, numero);
-        await this.gravar(detalhe);
-        sincronizadas += 1;
-      } catch (erro) {
-        falhas.push(numero);
-        const motivo = erro instanceof Error ? erro.message : String(erro);
-        this.logger.warn(`cota nao sincronizada grupo=${grupo} numero=${numero}: ${motivo}`);
-      }
-    });
-
-    this.logger.log(
-      `grupo ${grupo}: ${sincronizadas} cotas sincronizadas, ${falhas.length} falhas`,
+    const { naoIniciados } = await mapearComLimite(
+      numeros,
+      this.opcoes.limite,
+      async (numero) => {
+        try {
+          const detalhe = await this.buscarComTentativas(grupo, numero);
+          await this.gravar(detalhe);
+          sincronizadas += 1;
+        } catch (erro) {
+          falhas.push(numero);
+          const motivo = erro instanceof Error ? erro.message : String(erro);
+          this.logger.warn(`cota nao sincronizada grupo=${grupo} numero=${numero}: ${motivo}`);
+        }
+      },
+      this.desligamento.signal,
     );
 
-    return { sincronizadas, ...(falhas.length > 0 && { falhas }) };
+    this.logger.log(
+      `grupo ${grupo}: ${sincronizadas} cotas sincronizadas, ${falhas.length} falhas, ${naoIniciados.length} pendentes`,
+    );
+
+    return {
+      sincronizadas,
+      ...(falhas.length > 0 && { falhas }),
+      ...(naoIniciados.length > 0 && { pendentes: naoIniciados }),
+    };
   }
 
   /**

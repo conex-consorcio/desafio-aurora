@@ -110,6 +110,24 @@ describe("CotasSyncService", () => {
     expect(aurora.processadas().has("0009")).toBe(false);
   });
 
+  it("ao desligar, termina o que esta em voo, grava e devolve o resto como pendente", async () => {
+    const grupo = grupoNovo();
+    const aurora = auroraDeCotas({ limite: 2, atrasoMs: 40 });
+    const service = new CotasSyncService(prisma, aurora.fonte, { limite: 2 });
+
+    const sincronizacao = service.sincronizarGrupo(grupo, TOTAL);
+    await new Promise((ok) => setTimeout(ok, 100));
+    const inicioDrenagem = Date.now();
+    await service.beforeApplicationShutdown("SIGTERM");
+    const resultado = await sincronizacao;
+
+    expect(Date.now() - inicioDrenagem).toBeLessThan(500);
+    expect(resultado.sincronizadas).toBeGreaterThan(0);
+    expect(resultado.sincronizadas).toBeLessThan(TOTAL);
+    expect(resultado.sincronizadas + (resultado.pendentes?.length ?? 0)).toBe(TOTAL);
+    expect(await prisma.cota.count({ where: { grupo } })).toBe(resultado.sincronizadas);
+  });
+
   it("grava cada cota assim que chega e nao duplica ao rodar de novo", async () => {
     const grupo = grupoNovo();
     const aurora = auroraDeCotas({ limite: 5, somemNaPrimeira: ["0009"] });
