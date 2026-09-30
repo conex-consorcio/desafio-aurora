@@ -128,6 +128,21 @@ describe("CotasSyncService", () => {
     expect(await prisma.cota.count({ where: { grupo } })).toBe(resultado.sincronizadas);
   });
 
+  it("descarta a cota fora do contrato e segue com as demais", async () => {
+    const aurora = auroraDeCotas({ limite: 5 });
+    const foraDoContrato: CotaFonte = {
+      buscar: (grupo, numero) =>
+        numero === "0021"
+          ? Promise.resolve({ grupo, numero, situacao: "DISPONIVEL", valorCredito: "89.900,00" })
+          : aurora.fonte.buscar(grupo, numero),
+    };
+    const service = new CotasSyncService(prisma, foraDoContrato, { limite: 5 });
+
+    const resultado = await service.sincronizarGrupo(grupoNovo(), TOTAL);
+
+    expect(resultado).toEqual({ sincronizadas: TOTAL - 1, falhas: ["0021"] });
+  });
+
   it("grava cada cota assim que chega e nao duplica ao rodar de novo", async () => {
     const grupo = grupoNovo();
     const aurora = auroraDeCotas({ limite: 5, somemNaPrimeira: ["0009"] });
