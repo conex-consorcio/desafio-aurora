@@ -28,9 +28,12 @@ processo com consultas em voo.
    observado com folga. Timeout curto seguido de repetição faz o parceiro
    processar a mesma coisa duas vezes.
 
-3. **Repetir só o que certamente não teve efeito.** `429`, `5xx` e conexão
-   recusada repetem (até 3 tentativas), esperando o `Retry-After` quando ele
-   vem. Timeout não repete. A mesma classificação do ADR-0003.
+3. **Repetir só o que certamente não teve efeito.** `429`, `5xx` (exceto
+   `502`/`504`) e conexão recusada repetem (até 3 tentativas), esperando o
+   `Retry-After` quando ele vem, **até um teto de 10s**: acima disso a cota
+   vira falha, porque o parceiro não controla por quanto tempo um trabalhador
+   nosso fica parado. Timeout não repete. Depois da ordem de desligar, nada é
+   repetido. A mesma classificação do ADR-0003.
 
 4. **Gravar cada cota assim que chega**, por `upsert` em `(grupo, numero)`.
    Uma falha no meio não perde o que já veio; rodar de novo completa o que

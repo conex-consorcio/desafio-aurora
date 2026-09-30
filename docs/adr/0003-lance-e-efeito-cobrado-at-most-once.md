@@ -30,8 +30,9 @@ seis vezes ao parceiro.
    o cliente diz se a requisição pode ter saído (`ParceiroFalhaError.efeitoDesconhecido`):
    - **não saiu** (conexão não abriu, ou a Aurora respondeu com erro): a
      reserva é apagada e a chave volta a ficar disputável;
-   - **pode ter saído** (timeout, socket fechado sem resposta): a reserva
-     fica `PENDENTE` e **ninguém a repete automaticamente**.
+   - **pode ter saído** (timeout, socket fechado sem resposta, ou `502`/`504`
+     de um gateway na frente da Aurora): a reserva fica `PENDENTE` e
+     **ninguém a repete automaticamente**.
 
    Sem consulta nem chave de idempotência do lado da Aurora, não existe
    exactly-once. Entre cobrar duas vezes e deixar uma cota sem lance, escolhemos
