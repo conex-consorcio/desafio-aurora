@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { ParceiroFalhaError, paraParceiroFalha } from "@shared/http/parceiro-falha.error";
 import { AuroraTokenProvider } from "./aurora-token.provider";
 
 export interface RegistrarLanceRequest {
@@ -20,9 +21,17 @@ export interface CotaDetalhe {
 }
 
 /**
+ * Acima do p100 observado da Aurora (900ms) com folga. Um timeout curto
+ * demais, seguido de nova tentativa, faz o parceiro processar a mesma coisa
+ * duas vezes.
+ */
+const TIMEOUT_MS = 10_000;
+
+/**
  * Cliente HTTP da Aurora.
  *
- * Conhece o transporte, nao conhece negocio.
+ * Conhece o transporte, nao conhece negocio. Toda falha sai daqui como
+ * ParceiroFalhaError, dizendo se a requisicao pode ter chegado la.
  */
 @Injectable()
 export class AuroraClient {
@@ -34,21 +43,54 @@ export class AuroraClient {
   /**
    * Faz a chamada com o token atual. Se a Aurora responder 401, renova e
    * tenta uma vez mais -- o token pode ter expirado no meio do caminho.
+   *
+   * Falha ao obter token acontece ANTES de qualquer envio: efeito impossivel.
    */
   private async comToken(
+    operacao: string,
     executar: (token: string) => Promise<Response>,
   ): Promise<Response> {
-    const token = await this.tokens.obter();
-    const resposta = await executar(token);
+    const token = await this.semEfeito(operacao, () => this.tokens.obter());
+    const resposta = await this.enviar(operacao, () => executar(token));
     if (resposta.status !== 401) return resposta;
 
-    return executar(await this.tokens.renovar(token));
+    const novo = await this.semEfeito(operacao, () => this.tokens.renovar(token));
+    return this.enviar(operacao, () => executar(novo));
+  }
+
+  private async semEfeito<T>(operacao: string, obter: () => Promise<T>): Promise<T> {
+    try {
+      return await obter();
+    } catch (erro) {
+      const motivo = erro instanceof Error ? erro.message : String(erro);
+      throw new ParceiroFalhaError(operacao, `sem token (${motivo})`, false);
+    }
+  }
+
+  private async enviar(
+    operacao: string,
+    executar: () => Promise<Response>,
+  ): Promise<Response> {
+    try {
+      return await executar();
+    } catch (erro) {
+      throw paraParceiroFalha(operacao, erro);
+    }
+  }
+
+  private recusa(operacao: string, resposta: Response): ParceiroFalhaError {
+    return new ParceiroFalhaError(
+      operacao,
+      `status ${resposta.status}`,
+      false,
+      resposta.status,
+    );
   }
 
   async registrarLance(
     request: RegistrarLanceRequest,
   ): Promise<RegistrarLanceResponse> {
-    const resposta = await this.comToken((token) =>
+    const resposta = await this.comToken("registrarLance", (token) =>
       fetch(`${this.baseUrl}/lances/registrar`, {
         method: "POST",
         headers: {
@@ -56,39 +98,42 @@ export class AuroraClient {
           authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(request),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
       }),
     );
 
     if (!resposta.ok) {
-      throw new Error(`aurora:registrarLance status ${resposta.status}`);
+      throw this.recusa("registrarLance", resposta);
     }
 
     return (await resposta.json()) as RegistrarLanceResponse;
   }
 
   async detalheGrupo(numero: string): Promise<unknown> {
-    const resposta = await this.comToken((token) =>
+    const resposta = await this.comToken("detalheGrupo", (token) =>
       fetch(`${this.baseUrl}/grupos/${numero}`, {
         headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
       }),
     );
 
     if (!resposta.ok) {
-      throw new Error(`aurora:detalheGrupo status ${resposta.status}`);
+      throw this.recusa("detalheGrupo", resposta);
     }
 
     return resposta.json();
   }
 
   async detalheCota(grupo: string, numero: string): Promise<CotaDetalhe> {
-    const resposta = await this.comToken((token) =>
+    const resposta = await this.comToken("detalheCota", (token) =>
       fetch(`${this.baseUrl}/cotas/${grupo}/${numero}`, {
         headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
       }),
     );
 
     if (!resposta.ok) {
-      throw new Error(`aurora:detalheCota status ${resposta.status}`);
+      throw this.recusa("detalheCota", resposta);
     }
 
     return (await resposta.json()) as CotaDetalhe;
